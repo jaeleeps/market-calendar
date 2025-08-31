@@ -1,6 +1,7 @@
 import js from '@eslint/js'
 import ts from '@typescript-eslint/eslint-plugin'
 import parser from '@typescript-eslint/parser'
+import prettier from 'eslint-config-prettier'
 
 export default [
   {
@@ -19,7 +20,10 @@ export default [
       '@typescript-eslint': ts,
     },
     rules: {
-      // your custom rules here
+      // Add rules here if needed
     },
+    // Add Prettier config at the end
+    settings: {},
   },
+  prettier,
 ]

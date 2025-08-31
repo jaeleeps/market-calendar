@@ -51,7 +51,7 @@ export abstract class ExchangeCalendar {
    */
   getSchedule(start: DateTime, end: DateTime): Map<string, MarketSchedule> {
     const schedule = new Map<string, MarketSchedule>()
-    const holidays = new Set(this.getHolidays().map(d => d.toISODate()))
+    const holidays = new Set(this.getHolidays().map((d) => d.toISODate()))
     const earlyCloses = this.getEarlyCloses()
 
     let date = start.startOf('day')
@@ -64,9 +64,13 @@ export abstract class ExchangeCalendar {
         continue
       }
 
-      const open = date.set(this.#timeParts(this.openTime)).setZone(this.timezone)
+      const open = date
+        .set(this.#timeParts(this.openTime))
+        .setZone(this.timezone)
       const close = earlyCloses.has(iso)
-        ? date.set(this.#timeParts(earlyCloses.get(iso)!)).setZone(this.timezone)
+        ? date
+            .set(this.#timeParts(earlyCloses.get(iso)!))
+            .setZone(this.timezone)
         : date.set(this.#timeParts(this.closeTime)).setZone(this.timezone)
 
       schedule.set(iso, { marketOpen: open, marketClose: close })
@@ -84,7 +88,7 @@ export abstract class ExchangeCalendar {
    * @returns Array of DateTime objects representing valid trading days.
    */
   validDays(start: DateTime, end: DateTime): DateTime[] {
-    return Array.from(this.getSchedule(start, end).keys()).map(date =>
+    return Array.from(this.getSchedule(start, end).keys()).map((date) =>
       DateTime.fromISO(date, { zone: this.timezone }),
     )
   }
@@ -99,10 +103,15 @@ export abstract class ExchangeCalendar {
     const day = dt.toISODate()
     if (!day) return false
 
-    const schedule = this.getSchedule(dt.startOf('day'), dt.startOf('day')).get(day)
+    const schedule = this.getSchedule(dt.startOf('day'), dt.startOf('day')).get(
+      day,
+    )
     if (!schedule) return false
 
-    return Interval.fromDateTimes(schedule.marketOpen, schedule.marketClose).contains(dt)
+    return Interval.fromDateTimes(
+      schedule.marketOpen,
+      schedule.marketClose,
+    ).contains(dt)
   }
 
   /**
