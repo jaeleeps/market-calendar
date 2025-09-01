@@ -1,15 +1,9 @@
 import { DateTime } from 'luxon'
 import { Holiday } from '../core/Holiday'
-import {
-  MONDAY,
-  TUESDAY,
-  WEDNESDAY,
-  THURSDAY,
-  FRIDAY,
-  sundayToMonday,
-  nearestWorkday,
-  weekdayOffset,
-} from '../core/rules'
+import { sundayToMonday, nearestWorkday, weekdayOffset } from '../core/rules'
+import { Weekday } from '../core/constants'
+
+const { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY } = Weekday
 
 /**
  * Observance rule for Election Day 1968-1980: First Tuesday every four years.
