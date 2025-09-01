@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { Holiday } from '../core/Holiday'
-import { sundayToMonday, nearestWorkday, weekdayOffset } from '../core/rules'
-import { Weekday } from '../core/constants'
+import { sundayToMonday, nearestWorkday, weekdayOffset } from '../utils/rules'
+import { Weekday } from '../utils/constants'
 
 const { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY } = Weekday
 
