@@ -54,34 +54,65 @@ export class Registry<T> {
  * A dictionary that prevents direct mutation after initialization.
  * Useful for maintaining read-only mappings like market times.
  */
-export class ProtectedDict<T = any> extends Map<string, T> {
-  constructor(initial?: Record<string, T>) {
-    super()
-    if (initial) {
-      for (const [k, v] of Object.entries(initial)) {
-        this.set(k, v)
-      }
-    }
+/**
+ * A key-value dictionary that protects against direct item mutation.
+ * You must use `.changeTime`, `.addTime`, or `.removeTime` to modify.
+ */
+export class ProtectedDict<T> extends Map<string, T> {
+  private _INIT_RAN_NORMALLY: boolean
+
+  constructor(entries?: [string, T][]) {
+    super(entries)
     this._INIT_RAN_NORMALLY = true
   }
 
-  private _INIT_RAN_NORMALLY: boolean
+  /**
+   * Internal use for setting values without triggering protection.
+   */
+  _set(key: string, value: T): void {
+    super.set(key, value)
+  }
 
+  /**
+   * Internal use for deleting values without triggering protection.
+   */
+  _del(key: string): void {
+    super.delete(key)
+  }
+
+  /**
+   * Prevent direct use of `.set()`
+   * @throws TypeError
+   */
   override set(key: string, value: T): this {
     if (!this._INIT_RAN_NORMALLY) return super.set(key, value)
-    throw new TypeError('You cannot set a value directly...')
+    throw new TypeError(
+      'You cannot set a value directly. Use .changeTime, .addTime or .removeTime instead.',
+    )
   }
 
+  /**
+   * Prevent direct use of `.delete()`
+   * @throws TypeError
+   */
   override delete(key: string): boolean {
     if (!this._INIT_RAN_NORMALLY) return super.delete(key)
-    throw new TypeError('You cannot delete an item directly...')
+    throw new TypeError(
+      'You cannot delete an item directly. Use .changeTime, .addTime or .removeTime instead.',
+    )
   }
 
-  copy(): ProtectedDict<T> {
-    return new ProtectedDict<T>(Object.fromEntries(this))
+  /**
+   * Pretty-print the contents of the ProtectedDict.
+   */
+  override toString(): string {
+    return `ProtectedDict(${JSON.stringify(Object.fromEntries(this.entries()), null, 2)})`
   }
 
-  toString(): string {
-    return `ProtectedDict(${JSON.stringify(Object.fromEntries(this), null, 2)})`
+  /**
+   * Make a mutable shallow copy of the dictionary.
+   */
+  copy(): Map<string, T> {
+    return new Map(this.entries())
   }
 }

@@ -23,27 +23,31 @@ export interface TradingSession {
   close: DateTime
 }
 
+const defaultMarketTimes: Record<string, MarketTime> = {
+  core: {
+    label: 'core',
+    open: [9, 30],
+    close: [16, 0],
+  },
+  pre: {
+    label: 'pre',
+    open: [7, 0],
+    close: [9, 30],
+  },
+  post: {
+    label: 'post',
+    open: [16, 0],
+    close: [20, 0],
+  },
+}
+
 export abstract class MarketCalendar {
   static aliases: string[] = []
 
   /** Regular trading hours */
-  regularMarketTimes: ProtectedDict<MarketTime> = new ProtectedDict({
-    core: {
-      label: 'core',
-      open: [9, 30],
-      close: [16, 0],
-    },
-    pre: {
-      label: 'pre',
-      open: [7, 0],
-      close: [9, 30],
-    },
-    post: {
-      label: 'post',
-      open: [16, 0],
-      close: [20, 0],
-    },
-  })
+  regularMarketTimes: ProtectedDict<MarketTime> = new ProtectedDict(
+    Object.entries(defaultMarketTimes),
+  )
 
   /** Holiday calendar */
   abstract regularHolidays: HolidayCalendar
@@ -118,5 +122,46 @@ export abstract class MarketCalendar {
       throw new Error(`MarketCalendar '${name}' is not registered.`)
     }
     return new registry[name]()
+  }
+
+  /**
+   * Change the time for a market session label
+   * @param label - The key in regularMarketTimes to modify
+   * @param newTime - New MarketTime object
+   */
+  changeTime(label: string, newTime: MarketTime): void {
+    this.regularMarketTimes._set(label, newTime)
+  }
+
+  /**
+   * Get time config for a given label (e.g., "market")
+   * @param label - The key to retrieve
+   * @returns MarketTime or undefined
+   */
+  getTime(label: string): MarketTime | undefined {
+    return this.regularMarketTimes.get(label)
+  }
+
+  /**
+   * Returns true if this calendar overrides open/close logic
+   */
+  isCustom(): boolean {
+    return typeof this.openAtTime === 'function'
+  }
+
+  /**
+   * Check if the market is open at a given time.
+   * @param dt - The datetime to check (UTC)
+   * @param label - The session label to check (default: 'market')
+   * @returns true if open, false otherwise
+   */
+  openAtTime(dt: DateTime, label: string = 'market'): boolean {
+    const time = this.getTime(label)
+    if (!time) return false
+
+    const open = dt.set({ hour: time.open[0], minute: time.open[1] })
+    const close = dt.set({ hour: time.close[0], minute: time.close[1] })
+
+    return dt >= open && dt <= close
   }
 }
