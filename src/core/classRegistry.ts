@@ -54,97 +54,34 @@ export class Registry<T> {
  * A dictionary that prevents direct mutation after initialization.
  * Useful for maintaining read-only mappings like market times.
  */
-export class ProtectedDict<T = any> {
-  private store: Map<string, T> = new Map()
-  private initialized = false
-
-  constructor(initial: Record<string, T>) {
-    for (const key of Object.keys(initial)) {
-      this.store.set(key, initial[key])
+export class ProtectedDict<T = any> extends Map<string, T> {
+  constructor(initial?: Record<string, T>) {
+    super()
+    if (initial) {
+      for (const [k, v] of Object.entries(initial)) {
+        this.set(k, v)
+      }
     }
-    this.initialized = true
+    this._INIT_RAN_NORMALLY = true
   }
 
-  /**
-   * Internal setter used only before finalization.
-   *
-   * @param key - The key to set.
-   * @param value - The value to assign.
-   */
-  _set(key: string, value: T) {
-    this.store.set(key, value)
+  private _INIT_RAN_NORMALLY: boolean
+
+  override set(key: string, value: T): this {
+    if (!this._INIT_RAN_NORMALLY) return super.set(key, value)
+    throw new TypeError('You cannot set a value directly...')
   }
 
-  /**
-   * Internal deleter used only before finalization.
-   *
-   * @param key - The key to delete.
-   */
-  _del(key: string) {
-    this.store.delete(key)
+  override delete(key: string): boolean {
+    if (!this._INIT_RAN_NORMALLY) return super.delete(key)
+    throw new TypeError('You cannot delete an item directly...')
   }
 
-  /**
-   * Prevents setting properties after construction.
-   */
-  set(key: string, value: T): void {
-    if (!this.initialized) {
-      this._set(key, value)
-      return
-    }
-    throw new TypeError(
-      'Direct modification is not allowed. Use specific helper methods for updates.',
-    )
+  copy(): ProtectedDict<T> {
+    return new ProtectedDict<T>(Object.fromEntries(this))
   }
 
-  /**
-   * Prevents deleting properties after construction.
-   */
-  delete(key: string): void {
-    if (!this.initialized) {
-      this._del(key)
-      return
-    }
-    throw new TypeError(
-      'Direct deletion is not allowed. Use specific helper methods for updates.',
-    )
-  }
-
-  /**
-   * Gets a value by key.
-   *
-   * @param key - The key to retrieve.
-   * @returns The corresponding value.
-   */
-  get(key: string): T | undefined {
-    return this.store.get(key)
-  }
-
-  /**
-   * Checks if a key exists in the dictionary.
-   *
-   * @param key - The key to check.
-   * @returns True if the key exists.
-   */
-  has(key: string): boolean {
-    return this.store.has(key)
-  }
-
-  /**
-   * Returns a shallow copy of the internal dictionary as a plain object.
-   */
-  toObject(): Record<string, T> {
-    const result: Record<string, T> = {}
-    for (const [key, value] of this.store.entries()) {
-      result[key] = value
-    }
-    return result
-  }
-
-  /**
-   * Returns a stringified version of the dictionary for debugging.
-   */
   toString(): string {
-    return `ProtectedDict(${inspect(this.toObject(), { depth: null, sorted: false })})`
+    return `ProtectedDict(${JSON.stringify(Object.fromEntries(this), null, 2)})`
   }
 }
