@@ -1,7 +1,6 @@
 /**
- * Common constants used across holiday and calendar computations
+ * Enum representing weekdays (1 = Monday, 7 = Sunday).
  */
-
 export enum Weekday {
   MONDAY = 1,
   TUESDAY = 2,
@@ -13,7 +12,7 @@ export enum Weekday {
 }
 
 /**
- * Weekmask abbreviations for business day calculations (used in date offsets)
+ * Weekmask abbreviations for business day rules.
  */
 export const WEEKMASK_ABBR: Record<string, string> = {
   MON: '1111100',
@@ -26,7 +25,7 @@ export const WEEKMASK_ABBR: Record<string, string> = {
 }
 
 /**
- * Default timezone and session times (used in MarketCalendar)
+ * Default market configuration values.
  */
 export const DEFAULT_TIMEZONE = 'America/New_York'
 export const DEFAULT_OPEN_TIME = '09:30'
