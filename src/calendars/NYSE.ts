@@ -131,25 +131,27 @@ export class NYSE extends MarketCalendar {
     ...us.USNationalDaysofMourning,
   ]
 
-  override specialCloses = [
-    {
-      time: [14, 0] as [number, number],
-      calendar: new HolidayCalendar([
-        us.ChristmasEveBefore1993,
-        us.USBlackFridayBefore1993,
-      ]),
-    },
-    {
-      time: [13, 0] as [number, number],
-      calendar: new HolidayCalendar([
-        us.ChristmasEveInOrAfter1993,
-        us.USBlackFridayInOrAfter1993,
-        us.MonTuesThursBeforeIndependenceDay,
-        us.FridayAfterIndependenceDayPre2013,
-        us.WednesdayBeforeIndependenceDayPost2013,
-      ]),
-    },
-  ]
+  override specialTimes = {
+    market_close: [
+      {
+        time: [14, 0] as TimeOfDay,
+        calendar: new HolidayCalendar([
+          us.ChristmasEveBefore1993,
+          us.USBlackFridayBefore1993,
+        ]),
+      },
+      {
+        time: [13, 0] as TimeOfDay,
+        calendar: new HolidayCalendar([
+          us.ChristmasEveInOrAfter1993,
+          us.USBlackFridayInOrAfter1993,
+          us.MonTuesThursBeforeIndependenceDay,
+          us.FridayAfterIndependenceDayPre2013,
+          us.WednesdayBeforeIndependenceDayPost2013,
+        ]),
+      },
+    ],
+  }
 
   /**
    * The Saturday sessions NYSE ran until 1952 closed at noon, whatever the
