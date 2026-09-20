@@ -5,6 +5,7 @@ import {
   IntervalClosed,
   MarketDaySchedule,
   MarketSchedule,
+  MergeStrategy,
   TradingSessionLabel,
 } from './types'
 import {
@@ -84,42 +85,106 @@ function availableSessions(schedule: MarketSchedule): TradingSessionLabel[] {
   return sessions
 }
 
+/** The only columns a merged schedule carries. */
+const MERGED_COLUMNS = ['date', 'market_open', 'market_close']
+
 /**
- * Merge multiple market schedules by combining overlapping open/close intervals.
+ * Merge multiple market schedules into one.
  *
- * @param schedules - List of market schedules
- * @param how - 'outer' for union, 'inner' for intersection
- * @returns The merged market schedule
+ * An outer merge spans every day any market trades, taking the earliest open
+ * and the latest close. An inner merge keeps only the days every market trades,
+ * taking the latest open and the earliest close, and drops a day when that
+ * leaves no overlap at all.
+ *
+ * Only the open and the close survive: a merged break or extended-hours session
+ * has no meaning across exchanges, so those columns are dropped and a notice is
+ * written to the console.
+ *
+ * @param schedules - The schedules to merge
+ * @param how - 'outer' for the union of trading days, 'inner' for the overlap
+ * @returns The merged schedule, ordered by date
+ *
+ * @example
+ * mergeSchedules([nyse.schedule(a, b), lse.schedule(a, b)], 'inner')
+ * // => the window in which both exchanges are open
  */
 export function mergeSchedules(
   schedules: MarketSchedule[],
-  how: 'inner' | 'outer' = 'outer',
+  how: MergeStrategy = 'outer',
 ): MarketSchedule {
+  if (how !== 'outer' && how !== 'inner') {
+    throw new Error(`how must be "outer" or "inner", got "${String(how)}"`)
+  }
   if (schedules.length === 0) return []
-  if (schedules.length === 1) return schedules[0]
+
+  reportDroppedColumns(schedules)
+
+  const indexed = schedules.map((schedule) => {
+    const byDate = new Map<string, MarketDaySchedule>()
+    for (const day of schedule) {
+      const iso = day.date.toISODate()
+      if (iso) byDate.set(iso, day)
+    }
+    return byDate
+  })
 
   const merged: MarketSchedule = []
 
-  for (const session of schedules[0]) {
-    const day = session.date
-    const others = schedules
-      .slice(1)
-      .map((s) => s.find((d) => d.date.hasSame(day, 'day')))
-    if (others.some((s) => !s)) continue
+  for (const iso of mergedDates(indexed, how)) {
+    const rows = indexed
+      .map((byDate) => byDate.get(iso))
+      .filter((row): row is MarketDaySchedule => row !== undefined)
+    if (rows.length === 0) continue
 
-    const allOpens = [session.market_open, ...others.map((s) => s!.market_open)]
-    const allCloses = [
-      session.market_close,
-      ...others.map((s) => s!.market_close),
-    ]
+    const opens = rows.map((row) => row.market_open)
+    const closes = rows.map((row) => row.market_close)
+    const market_open = how === 'outer' ? min(opens) : max(opens)
+    const market_close = how === 'outer' ? max(closes) : min(closes)
 
-    const market_open = how === 'outer' ? min(allOpens) : max(allOpens)
-    const market_close = how === 'outer' ? max(allCloses) : min(allCloses)
+    // An inner merge only means something while the markets actually overlap.
+    if (how === 'inner' && market_open >= market_close) continue
 
-    merged.push({ date: day, market_open, market_close })
+    merged.push({ date: rows[0].date, market_open, market_close })
   }
 
   return merged
+}
+
+/**
+ * The dates a merge covers: every date for an outer merge, only the shared
+ * ones for an inner merge.
+ */
+function mergedDates(
+  indexed: Map<string, MarketDaySchedule>[],
+  how: MergeStrategy,
+): string[] {
+  const [first, ...rest] = indexed
+  const dates =
+    how === 'outer'
+      ? new Set(indexed.flatMap((byDate) => [...byDate.keys()]))
+      : new Set(
+          [...first.keys()].filter((iso) =>
+            rest.every((byDate) => byDate.has(iso)),
+          ),
+        )
+
+  return [...dates].sort()
+}
+
+/** Tell the caller which market times the merge is about to discard. */
+function reportDroppedColumns(schedules: MarketSchedule[]): void {
+  const dropped = new Set<string>()
+  for (const schedule of schedules) {
+    for (const column of Object.keys(schedule[0] ?? {})) {
+      if (!MERGED_COLUMNS.includes(column)) dropped.add(column)
+    }
+  }
+
+  if (dropped.size > 0) {
+    console.warn(
+      `mergeSchedules will drop ${[...dropped].sort().join(', ')} from the result.`,
+    )
+  }
 }
 
 /**

@@ -3,7 +3,11 @@ import { DateTime, Duration } from 'luxon'
 import { getCalendar, calendarNames, NYSE } from '../src'
 import { weekdayOffset, easterSunday } from '../src/utils/rules'
 import { Weekday } from '../src/utils/constants'
-import { dateRange, markSession } from '../src/utils/calendarUtils'
+import {
+  dateRange,
+  markSession,
+  mergeSchedules,
+} from '../src/utils/calendarUtils'
 import {
   MissingSessionWarning,
   filterDateRangeWarnings,
@@ -513,6 +517,103 @@ test.group('dateRange', (group) => {
     assert.deepEqual(
       hhmm(dateRange(sched, '1h', { session: 'break', closed: 'left' })),
       ['11:30'],
+    )
+  })
+})
+
+test.group('mergeSchedules', () => {
+  const at = (date: string, time: string) =>
+    DateTime.fromISO(`${date}T${time}`, { zone: 'UTC' })
+
+  const session = (date: string, open: string, close: string) => ({
+    date: at(date, '00:00'),
+    market_open: at(date, open),
+    market_close: at(date, close),
+  })
+
+  const shape = (schedule: ReturnType<typeof mergeSchedules>) =>
+    schedule.map(
+      (d) =>
+        `${d.date.toISODate()} ${d.market_open.toFormat('HH:mm')}-${d.market_close.toFormat('HH:mm')}`,
+    )
+
+  // Monday and Tuesday for one market, Tuesday and Wednesday for the other.
+  const a = [
+    session('2024-07-01', '09:00', '16:00'),
+    session('2024-07-02', '09:00', '16:00'),
+  ]
+  const b = [
+    session('2024-07-02', '10:00', '17:00'),
+    session('2024-07-03', '10:00', '17:00'),
+  ]
+
+  test('outer spans every day either market trades', ({ assert }) => {
+    assert.deepEqual(shape(mergeSchedules([a, b], 'outer')), [
+      '2024-07-01 09:00-16:00', // only market A
+      '2024-07-02 09:00-17:00', // earliest open, latest close
+      '2024-07-03 10:00-17:00', // only market B
+    ])
+  })
+
+  test('outer is the default', ({ assert }) => {
+    assert.deepEqual(
+      shape(mergeSchedules([a, b])),
+      shape(mergeSchedules([a, b], 'outer')),
+    )
+  })
+
+  test('inner keeps only days both markets trade', ({ assert }) => {
+    assert.deepEqual(shape(mergeSchedules([a, b], 'inner')), [
+      '2024-07-02 10:00-16:00', // latest open, earliest close
+    ])
+  })
+
+  test('inner drops days with no overlap', ({ assert }) => {
+    const morning = [session('2024-07-02', '09:00', '12:00')]
+    const afternoon = [session('2024-07-02', '13:00', '16:00')]
+    assert.deepEqual(mergeSchedules([morning, afternoon], 'inner'), [])
+    assert.deepEqual(shape(mergeSchedules([morning, afternoon], 'outer')), [
+      '2024-07-02 09:00-16:00',
+    ])
+  })
+
+  test('merges more than two schedules', ({ assert }) => {
+    const c = [session('2024-07-02', '08:00', '15:00')]
+    assert.deepEqual(shape(mergeSchedules([a, b, c], 'outer')), [
+      '2024-07-01 09:00-16:00',
+      '2024-07-02 08:00-17:00',
+      '2024-07-03 10:00-17:00',
+    ])
+    assert.deepEqual(shape(mergeSchedules([a, b, c], 'inner')), [
+      '2024-07-02 10:00-15:00',
+    ])
+  })
+
+  test('drops market times a merge cannot carry', ({ assert }) => {
+    const warnings: string[] = []
+    const original = console.warn
+    console.warn = (msg: string) => warnings.push(msg)
+
+    try {
+      const merged = mergeSchedules([
+        nyse().schedule('2024-07-02', '2024-07-02'),
+      ])
+      assert.deepEqual(Object.keys(merged[0]).sort(), [
+        'date',
+        'market_close',
+        'market_open',
+      ])
+      assert.match(warnings[0], /will drop post, pre/)
+    } finally {
+      console.warn = original
+    }
+  })
+
+  test('handles empty input and rejects a bad strategy', ({ assert }) => {
+    assert.deepEqual(mergeSchedules([], 'outer'), [])
+    assert.throws(
+      () => mergeSchedules([a], 'sideways' as 'inner'),
+      /must be "outer" or "inner"/,
     )
   })
 })
