@@ -225,19 +225,102 @@ test.group('openAtTime', () => {
   })
 })
 
+test.group('extended hours', () => {
+  const columns = (date: string) => {
+    const [day] = nyse().schedule(date, date)
+    return {
+      pre: day.pre?.toFormat('HH:mm'),
+      open: day.market_open.toFormat('HH:mm'),
+      close: day.market_close.toFormat('HH:mm'),
+      post: day.post?.toFormat('HH:mm'),
+    }
+  }
+
+  test('publishes pre and post alongside regular hours', ({ assert }) => {
+    assert.deepEqual(columns('2024-07-02'), {
+      pre: '04:00',
+      open: '09:30',
+      close: '16:00',
+      post: '20:00',
+    })
+  })
+
+  test('shortens the post session on 13:00 early closes', ({ assert }) => {
+    assert.deepEqual(columns('2024-07-03'), {
+      pre: '04:00',
+      open: '09:30',
+      close: '13:00',
+      post: '17:00',
+    })
+    assert.deepEqual(columns('2024-11-29'), {
+      pre: '04:00',
+      open: '09:30',
+      close: '13:00',
+      post: '17:00',
+    })
+  })
+
+  test('leaves the post session alone on 14:00 closes', ({ assert }) => {
+    // The pre-1993 Christmas Eve close is not one of the 1pm rules.
+    assert.deepEqual(columns('1992-12-24'), {
+      pre: '04:00',
+      open: '09:30',
+      close: '14:00',
+      post: '20:00',
+    })
+  })
+
+  test('openAtTime still means regular hours only', ({ assert }) => {
+    const cal = nyse()
+    assert.isFalse(cal.openAtTime(et('2024-07-02T05:00'))) // pre-market
+    assert.isTrue(cal.openAtTime(et('2024-07-02T10:00')))
+    assert.isFalse(cal.openAtTime(et('2024-07-02T18:00'))) // post-market
+  })
+})
+
 test.group('markSession', () => {
+  test('labels every session of a regular day', ({ assert }) => {
+    const schedule = nyse().schedule('2024-07-02', '2024-07-02')
+    const stamps = [
+      et('2024-07-02T05:00'),
+      et('2024-07-02T10:00'),
+      et('2024-07-02T18:00'),
+      et('2024-07-02T21:00'),
+    ]
+
+    assert.deepEqual(Object.values(markSession(schedule, stamps)), [
+      'pre',
+      'rth',
+      'post',
+      'closed',
+    ])
+  })
+
+  test('follows the shortened sessions of an early close', ({ assert }) => {
+    const schedule = nyse().schedule('2024-07-03', '2024-07-03')
+    const stamps = [
+      et('2024-07-03T12:00'), // before the 13:00 close
+      et('2024-07-03T15:00'), // post runs until 17:00 on early closes
+      et('2024-07-03T18:00'), // past it
+    ]
+
+    assert.deepEqual(Object.values(markSession(schedule, stamps)), [
+      'rth',
+      'post',
+      'closed',
+    ])
+  })
+
   test('labels timestamps against their own session day', ({ assert }) => {
     const schedule = nyse().schedule('2024-07-02', '2024-07-05')
     const stamps = [
       et('2024-07-02T10:00'),
-      et('2024-07-03T15:00'), // after the 13:00 early close
       et('2024-07-04T10:00'), // holiday, not in the schedule
       et('2024-07-05T10:00'),
     ]
 
     assert.deepEqual(Object.values(markSession(schedule, stamps)), [
       'rth',
-      'closed',
       'closed',
       'rth',
     ])
