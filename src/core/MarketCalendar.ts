@@ -4,6 +4,7 @@ import { ProtectedDict } from './classRegistry'
 import { Weekday } from '../utils/constants'
 import { dateRange } from '../utils/dateRange'
 import { MarketDaySchedule, MarketSchedule } from '../utils/types'
+import { Dated, latestValue, valueOn } from '../utils/dated'
 
 /** A wall-clock time in the exchange's timezone, as [hour, minute]. */
 export type TimeOfDay = [hour: number, minute: number]
@@ -22,6 +23,16 @@ export type MarketTimeKey =
 
 /** The two market times every calendar must define. */
 const REQUIRED_MARKET_TIMES: MarketTimeKey[] = ['market_open', 'market_close']
+
+/** A market time given either as a single time or as a dated history. */
+export type MarketTimeSpec = TimeOfDay | Dated<TimeOfDay>[]
+
+/** Accept a bare time as a history that has always been in effect. */
+function toHistory(time: MarketTimeSpec): Dated<TimeOfDay>[] {
+  return Array.isArray(time) && typeof time[0] === 'number'
+    ? [{ from: null, value: time as TimeOfDay }]
+    : (time as Dated<TimeOfDay>[])
+}
 
 /**
  * A recurring deviation from the regular open or close, such as the 1:00pm
@@ -56,11 +67,31 @@ export abstract class MarketCalendar {
   /** IANA timezone of the exchange, e.g. "America/New_York". */
   abstract readonly tz: string
 
-  /** Regular market times, keyed by column name. */
-  readonly regularMarketTimes = new ProtectedDict<TimeOfDay>([
-    ['market_open', [9, 30]],
-    ['market_close', [16, 0]],
+  /**
+   * Regular market times, keyed by column name. Each entry is the history of
+   * that time, so an exchange that moved its open records both.
+   */
+  regularMarketTimes = new ProtectedDict<Dated<TimeOfDay>[]>([
+    ['market_open', [{ from: null, value: [9, 30] }]],
+    ['market_close', [{ from: null, value: [16, 0] }]],
   ])
+
+  /**
+   * Weekdays the exchange trades, as a history. Exchanges that dropped a
+   * trading day record both eras rather than only the current one.
+   */
+  weekmask: Dated<Weekday[]>[] = [
+    {
+      from: null,
+      value: [
+        Weekday.MONDAY,
+        Weekday.TUESDAY,
+        Weekday.WEDNESDAY,
+        Weekday.THURSDAY,
+        Weekday.FRIDAY,
+      ],
+    },
+  ]
 
   /** Rule-driven full-day closures. */
   regularHolidays: HolidayCalendar = new HolidayCalendar([])
@@ -79,11 +110,11 @@ export abstract class MarketCalendar {
    * @param key An already-defined market time column
    * @param time The new wall-clock time
    */
-  changeTime(key: MarketTimeKey, time: TimeOfDay): void {
+  changeTime(key: MarketTimeKey, time: MarketTimeSpec): void {
     if (!this.regularMarketTimes.has(key)) {
       throw new Error(`"${key}" is not defined; use addTime instead.`)
     }
-    this.regularMarketTimes._set(key, time)
+    this.regularMarketTimes._set(key, toHistory(time))
   }
 
   /**
@@ -91,11 +122,11 @@ export abstract class MarketCalendar {
    * @param key A market time column that is not yet defined
    * @param time The wall-clock time
    */
-  addTime(key: MarketTimeKey, time: TimeOfDay): void {
+  addTime(key: MarketTimeKey, time: MarketTimeSpec): void {
     if (this.regularMarketTimes.has(key)) {
       throw new Error(`"${key}" is already defined; use changeTime instead.`)
     }
-    this.regularMarketTimes._set(key, time)
+    this.regularMarketTimes._set(key, toHistory(time))
   }
 
   /**
@@ -110,12 +141,23 @@ export abstract class MarketCalendar {
   }
 
   /**
-   * Get the wall-clock time configured for a market time column.
+   * Get the market time currently in effect for a column.
    * @param key The market time column
    * @returns The [hour, minute] tuple, or undefined if not defined
    */
   getTime(key: MarketTimeKey): TimeOfDay | undefined {
-    return this.regularMarketTimes.get(key)
+    const history = this.regularMarketTimes.get(key)
+    return history ? latestValue(history) : undefined
+  }
+
+  /**
+   * Get the market time a column had on a given date.
+   * @param key The market time column
+   * @param date The date to resolve against
+   * @returns The [hour, minute] tuple, or undefined if not in effect then
+   */
+  getTimeOn(key: MarketTimeKey, date: DateLike): TimeOfDay | undefined {
+    return this.timeOn(key, this.sessionDate(date))
   }
 
   /**
@@ -146,9 +188,11 @@ export abstract class MarketCalendar {
     const to = this.sessionDate(end)
     const closed = this.holidayDates(from, to)
 
-    return dateRange(from, to).filter(
-      (day) => day.weekday <= Weekday.FRIDAY && !closed.has(day.toISODate()!),
-    )
+    return dateRange(from, to).filter((day) => {
+      const iso = day.toISODate()!
+      const trading = valueOn(this.weekmask, iso) ?? []
+      return trading.includes(day.weekday) && !closed.has(iso)
+    })
   }
 
   /**
@@ -167,14 +211,23 @@ export abstract class MarketCalendar {
     return days.map((date) => {
       const iso = date.toISODate()!
       const times: Record<string, DateTime> = {}
-      for (const [key, time] of this.regularMarketTimes) {
-        times[key] = this.at(date, time)
+      for (const key of this.regularMarketTimes.keys()) {
+        // A market time the exchange had not introduced yet simply has no
+        // column on that day.
+        const time = this.timeOn(key as MarketTimeKey, date)
+        if (time) times[key] = this.at(date, time)
       }
 
       const open = opens.get(iso)
       if (open) times.market_open = this.at(date, open)
       const close = closes.get(iso)
       if (close) times.market_close = this.at(date, close)
+
+      if (!times.market_open || !times.market_close) {
+        throw new Error(
+          `${this.name} has no market_open/market_close in effect on ${iso}.`,
+        )
+      }
 
       return {
         ...times,
@@ -206,10 +259,25 @@ export abstract class MarketCalendar {
   }
 
   /**
+   * Resolve a market time for one session date.
+   *
+   * Subclasses override this when a time depends on more than where the date
+   * falls in the exchange's history, such as a weekday-specific close.
+   *
+   * @param key The market time column
+   * @param date A session date in the exchange timezone
+   * @returns The time in effect, or undefined if the column has none that day
+   */
+  protected timeOn(key: MarketTimeKey, date: DateTime): TimeOfDay | undefined {
+    const history = this.regularMarketTimes.get(key)
+    return history ? valueOn(history, date.toISODate()!) : undefined
+  }
+
+  /**
    * Resolve an input date to midnight on that calendar date in the exchange
    * timezone — the anchor every session comparison is made against.
    */
-  private sessionDate(date: DateLike): DateTime {
+  protected sessionDate(date: DateLike): DateTime {
     const dt =
       typeof date === 'string'
         ? DateTime.fromISO(date, { zone: this.tz })
