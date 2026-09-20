@@ -143,6 +143,69 @@ test.group('NYSE schedule', () => {
   })
 })
 
+test.group('historical market times', () => {
+  const hours = (date: string) => {
+    const [day] = nyse().schedule(date, date)
+    return `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+  }
+
+  test('uses the open in effect on the date', ({ assert }) => {
+    // The open moved from 10:00 to 09:30 on 1985-01-01, itself a holiday.
+    assert.equal(hours('1984-12-31'), '10:00-16:00')
+    assert.equal(hours('1985-01-02'), '09:30-16:00')
+  })
+
+  test('uses the close in effect on the date', ({ assert }) => {
+    assert.equal(hours('1952-09-26'), '10:00-15:00')
+    assert.equal(hours('1952-09-29'), '10:00-15:30')
+    assert.equal(hours('1973-12-31'), '10:00-15:30')
+    assert.equal(hours('1974-01-02'), '10:00-16:00')
+  })
+
+  test('reports the current and the historical time', ({ assert }) => {
+    const cal = nyse()
+    assert.deepEqual(cal.getTime('market_open'), [9, 30])
+    assert.deepEqual(cal.getTimeOn('market_open', '1970-06-01'), [10, 0])
+    assert.deepEqual(cal.getTimeOn('market_close', '1970-06-01'), [15, 30])
+  })
+
+  test('leaves the modern era untouched', ({ assert }) => {
+    assert.equal(hours('2024-07-02'), '09:30-16:00')
+  })
+})
+
+test.group('historical weekmask', () => {
+  test('trades Saturdays until 1952-09-29', ({ assert }) => {
+    // 1950-01-07 and 1952-05-24 are both Saturdays outside the summer
+    // shutdowns; 1952-10-04 falls after Saturday trading ended.
+    assert.deepEqual(iso(nyse().validDays('1950-01-07', '1950-01-07')), [
+      '1950-01-07',
+    ])
+    assert.deepEqual(iso(nyse().validDays('1952-05-24', '1952-05-24')), [
+      '1952-05-24',
+    ])
+    assert.deepEqual(iso(nyse().validDays('1952-10-04', '1952-10-04')), [])
+  })
+
+  test('closes Saturday sessions at noon', ({ assert }) => {
+    const [day] = nyse().schedule('1950-01-07', '1950-01-07')
+    assert.equal(day.market_open.toFormat('HH:mm'), '10:00')
+    assert.equal(day.market_close.toFormat('HH:mm'), '12:00')
+  })
+
+  test('spans the transition within one range', ({ assert }) => {
+    // Saturday 1952-09-27 is the last Saturday session; 1952-10-04 is not one.
+    const days = iso(nyse().validDays('1952-09-26', '1952-10-04'))
+    assert.include(days, '1952-09-27')
+    assert.notInclude(days, '1952-10-04')
+  })
+
+  test('still excludes Sundays and modern Saturdays', ({ assert }) => {
+    assert.deepEqual(iso(nyse().validDays('1950-01-08', '1950-01-08')), [])
+    assert.deepEqual(iso(nyse().validDays('2024-07-06', '2024-07-07')), [])
+  })
+})
+
 test.group('openAtTime', () => {
   test('is open during regular hours only', ({ assert }) => {
     const cal = nyse()

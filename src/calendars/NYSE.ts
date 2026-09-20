@@ -1,25 +1,89 @@
 import { DateTime } from 'luxon'
-import { MarketCalendar } from '../core/MarketCalendar'
+import {
+  MarketCalendar,
+  MarketTimeKey,
+  TimeOfDay,
+} from '../core/MarketCalendar'
 import { HolidayCalendar } from '../core/HolidayCalendar'
+import { ProtectedDict } from '../core/classRegistry'
+import { Weekday } from '../utils/constants'
+import { Dated } from '../utils/dated'
 import * as us from '../holidays/us'
 
 /**
  * New York Stock Exchange.
  *
- * Regular hours are 09:30–16:00 Eastern. Full-day closures come from the dated
- * US rules in `holidays/us`, so historical rule changes (MLK from 1998,
- * Juneteenth from 2022, the Washington's Birthday to Presidents' Day switch)
- * are honoured by the rules themselves rather than by this class.
+ * Hours are 09:30–16:00 Eastern today, and the class records the earlier eras
+ * too: the open moved from 10:00 in 1985, the close from 15:00 to 15:30 in 1952
+ * and to 16:00 in 1974, and Saturday trading ran until 1952-09-29 with a noon
+ * close. Full-day closures come from the dated US rules in `holidays/us`, so
+ * historical rule changes (MLK from 1998, Juneteenth from 2022, the
+ * Washington's Birthday to Presidents' Day switch) are honoured by the rules
+ * themselves rather than by this class.
  *
  * Scope: the recurring rules plus the well-known adhoc closures. The dozens of
  * one-off historical early closes in the reference implementation (weather,
  * funerals, backlog half-days) are not modelled.
+ *
+ * Known gap: the Saturday closures in the reference implementation's
+ * `holidays/nyse.py` are not ported — the summer Saturday shutdowns from 1945
+ * to 1952 and roughly a dozen adhoc Saturday closings around holidays. Saturday
+ * sessions before 1952-09-29 are therefore over-inclusive; the ones this
+ * calendar reports as open were not all open.
  */
 export class NYSE extends MarketCalendar {
   static override aliases = ['XNYS', 'NYSE', 'stock']
 
   readonly name = 'NYSE'
   readonly tz = 'America/New_York'
+
+  /** The last date Saturday sessions were held. */
+  private static readonly SATURDAY_END = '1952-09-29'
+
+  /** Saturday sessions closed at noon rather than the regular close. */
+  private static readonly SATURDAY_CLOSE: TimeOfDay = [12, 0]
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay>[]>([
+    [
+      'market_open',
+      [
+        { from: null, value: [10, 0] },
+        { from: '1985-01-01', value: [9, 30] },
+      ],
+    ],
+    [
+      'market_close',
+      [
+        { from: null, value: [15, 0] },
+        { from: '1952-09-29', value: [15, 30] },
+        { from: '1974-01-01', value: [16, 0] },
+      ],
+    ],
+  ])
+
+  override weekmask: Dated<Weekday[]>[] = [
+    {
+      from: null,
+      value: [
+        Weekday.MONDAY,
+        Weekday.TUESDAY,
+        Weekday.WEDNESDAY,
+        Weekday.THURSDAY,
+        Weekday.FRIDAY,
+        Weekday.SATURDAY,
+      ],
+    },
+    {
+      from: NYSE.SATURDAY_END,
+      value: [
+        Weekday.MONDAY,
+        Weekday.TUESDAY,
+        Weekday.WEDNESDAY,
+        Weekday.THURSDAY,
+        Weekday.FRIDAY,
+      ],
+    },
+  ]
 
   override regularHolidays = new HolidayCalendar([
     us.USNewYearsDay,
@@ -86,4 +150,18 @@ export class NYSE extends MarketCalendar {
       ]),
     },
   ]
+
+  /**
+   * The Saturday sessions NYSE ran until 1952 closed at noon, whatever the
+   * regular close of the day was.
+   */
+  protected override timeOn(
+    key: MarketTimeKey,
+    date: DateTime,
+  ): TimeOfDay | undefined {
+    if (key === 'market_close' && date.weekday === Weekday.SATURDAY) {
+      return NYSE.SATURDAY_CLOSE
+    }
+    return super.timeOn(key, date)
+  }
 }
