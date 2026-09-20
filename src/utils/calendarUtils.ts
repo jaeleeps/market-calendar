@@ -1,5 +1,18 @@
-import { DateTime } from 'luxon'
-import { MarketDaySchedule, MarketSchedule, TradingSessionLabel } from './types'
+import { DateTime, Duration } from 'luxon'
+import {
+  DateRangeSession,
+  Frequency,
+  IntervalClosed,
+  MarketDaySchedule,
+  MarketSchedule,
+  TradingSessionLabel,
+} from './types'
+import {
+  DisappearingSessionWarning,
+  MissingSessionWarning,
+  OverlappingSessionWarning,
+  emitDateRangeWarning,
+} from './warnings'
 import { DEFAULT_LABEL_MAP } from './sessionUtils'
 import { Holiday } from '../core/Holiday'
 import { HolidayCalendar } from '../core/HolidayCalendar'
@@ -228,4 +241,251 @@ export function allSingleObservanceRules(
     .map((rule: Holiday) => isSingleObservance(rule))
     .filter((d): d is DateTime => Boolean(d))
   return dates.length === calendar.rules.length ? dates : undefined
+}
+
+/** Options controlling how `dateRange` interpolates a schedule. */
+export interface DateRangeOptions {
+  /** Which endpoint of each bar to label. Defaults to 'right'. */
+  closed?: IntervalClosed
+  /**
+   * How the last bar of a session is handled when the grid overshoots:
+   * true pins the session close, false drops the bar, null keeps the
+   * overshooting timestamp. Defaults to true.
+   */
+  forceClose?: boolean | null
+  /** Session or sessions to interpolate. Defaults to 'RTH'. */
+  session?: DateRangeSession | DateRangeSession[]
+  /** Merge sessions that meet end-to-start. Defaults to true. */
+  mergeAdjacent?: boolean
+}
+
+/** Column pairs that bound each session, in the order they occur in a day. */
+const SESSION_COLUMNS: Record<DateRangeSession, [string, string][]> = {
+  pre: [['pre', 'market_open']],
+  RTH: [['market_open', 'market_close']],
+  post: [['market_close', 'post']],
+  ETH: [
+    ['pre', 'market_open'],
+    ['market_close', 'post'],
+  ],
+  break: [['break_start', 'break_end']],
+  pre_break: [['market_open', 'break_start']],
+  post_break: [['break_end', 'market_close']],
+}
+
+/** RTH splits around a lunch break when the schedule has one. */
+const RTH_WITH_BREAK: [string, string][] = [
+  ['market_open', 'break_start'],
+  ['break_end', 'market_close'],
+]
+
+/** One session of one day, resolved to concrete timestamps. */
+interface SessionInterval {
+  date: string
+  start: DateTime
+  end: DateTime
+}
+
+/**
+ * Interpolate a market schedule at a fixed frequency.
+ *
+ * Returns one timestamp per bar for the requested sessions. Intervals shorter
+ * than the frequency, and timestamps that run past the end of their session,
+ * are reported through the DateRange warnings; see `filterDateRangeWarnings`.
+ *
+ * Only frequencies of a day or less are supported.
+ *
+ * @param schedule - A schedule as produced by `MarketCalendar.schedule()`
+ * @param frequency - Bar size: seconds, a Duration, or a string like '15min'
+ * @param options - Session selection and interval labelling
+ * @returns Bar timestamps in ascending order
+ *
+ * @example
+ * dateRange(nyse.schedule('2024-07-01', '2024-07-01'), '1h', { closed: 'left' })
+ * // => [09:30, 10:30, 11:30, 12:30, 13:30, 14:30, 15:30]
+ */
+export function dateRange(
+  schedule: MarketSchedule,
+  frequency: Frequency,
+  options: DateRangeOptions = {},
+): DateTime[] {
+  const {
+    closed = 'right',
+    forceClose = true,
+    session = 'RTH',
+    mergeAdjacent = true,
+  } = options
+
+  const step = toStep(frequency)
+  const intervals = sessionIntervals(schedule, session, mergeAdjacent)
+
+  const includeStart = closed === 'left' || closed === 'both'
+  const includeEnd = closed === 'right' || closed === 'both'
+  const timestamps: DateTime[] = []
+  const vanished: string[] = []
+  const overlapping: string[] = []
+
+  intervals.forEach((interval, index) => {
+    const before = timestamps.length
+
+    if (includeStart) timestamps.push(interval.start)
+
+    let current = interval.start.plus(step)
+    while (current < interval.end) {
+      timestamps.push(current)
+      current = current.plus(step)
+    }
+
+    if (includeEnd) {
+      if (+current === +interval.end) {
+        timestamps.push(interval.end)
+      } else if (forceClose === true) {
+        // The bar grid overshoots the close, so pin the close itself.
+        timestamps.push(interval.end)
+      } else if (forceClose === null) {
+        timestamps.push(current)
+        const next = intervals[index + 1]
+        if (next && current > next.start) overlapping.push(interval.date)
+      }
+      // forceClose === false drops the overshooting bar entirely.
+    }
+
+    if (timestamps.length === before) vanished.push(interval.date)
+  })
+
+  if (vanished.length > 0) {
+    emitDateRangeWarning(new DisappearingSessionWarning(vanished))
+  }
+  if (overlapping.length > 0) {
+    emitDateRangeWarning(new OverlappingSessionWarning(overlapping))
+  }
+
+  return dedupe(timestamps)
+}
+
+/**
+ * Resolve the requested sessions against the schedule's columns, warning about
+ * any the schedule cannot supply.
+ */
+function sessionIntervals(
+  schedule: MarketSchedule,
+  session: DateRangeSession | DateRangeSession[],
+  mergeAdjacent: boolean,
+): SessionInterval[] {
+  const requested = Array.isArray(session) ? session : [session]
+  const columns = new Set(Object.keys(schedule[0] ?? {}))
+  const hasBreak = columns.has('break_start') && columns.has('break_end')
+
+  const pairs: [string, string][] = []
+  const skipped: string[] = []
+  const missing = new Set<string>()
+
+  for (const name of requested) {
+    const wanted =
+      name === 'RTH' && hasBreak ? RTH_WITH_BREAK : SESSION_COLUMNS[name]
+    if (!wanted) throw new Error(`Unknown session: ${name}`)
+
+    const absent = wanted.flat().filter((column) => !columns.has(column))
+    if (absent.length > 0) {
+      skipped.push(name)
+      absent.forEach((column) => missing.add(column))
+      continue
+    }
+    pairs.push(...wanted)
+  }
+
+  if (skipped.length > 0) {
+    emitDateRangeWarning(new MissingSessionWarning(skipped, [...missing]))
+  }
+
+  const intervals: SessionInterval[] = []
+  for (const day of schedule) {
+    const date = day.date.toISODate() ?? ''
+    const spans = pairs
+      .map(([from, to]) => ({ date, start: day[from], end: day[to] }))
+      .filter((span) => span.start && span.end && span.start < span.end)
+      .sort((a, b) => a.start.toMillis() - b.start.toMillis())
+
+    intervals.push(...(mergeAdjacent ? merged(spans) : spans))
+  }
+
+  return intervals
+}
+
+/** Collapse sessions that meet end-to-start into one continuous interval. */
+function merged(spans: SessionInterval[]): SessionInterval[] {
+  const result: SessionInterval[] = []
+
+  for (const span of spans) {
+    const last = result[result.length - 1]
+    if (last && +last.end === +span.start) {
+      result[result.length - 1] = { ...last, end: span.end }
+    } else {
+      result.push(span)
+    }
+  }
+
+  return result
+}
+
+/** Drop repeated timestamps, which adjacent unmerged sessions can produce. */
+function dedupe(timestamps: DateTime[]): DateTime[] {
+  return timestamps.filter(
+    (ts, index) => index === 0 || +ts !== +timestamps[index - 1],
+  )
+}
+
+/** Units accepted in a frequency string. */
+const FREQUENCY_UNITS: Record<string, string> = {
+  s: 'seconds',
+  sec: 'seconds',
+  secs: 'seconds',
+  second: 'seconds',
+  seconds: 'seconds',
+  m: 'minutes',
+  min: 'minutes',
+  mins: 'minutes',
+  minute: 'minutes',
+  minutes: 'minutes',
+  h: 'hours',
+  hr: 'hours',
+  hrs: 'hours',
+  hour: 'hours',
+  hours: 'hours',
+  d: 'days',
+  day: 'days',
+  days: 'days',
+}
+
+/**
+ * Normalize a frequency to a Duration.
+ *
+ * @param frequency - Seconds, a Duration, or a string such as '15min'
+ * @returns The bar size as a Duration
+ * @throws If the frequency is not positive, or is longer than a day
+ */
+function toStep(frequency: Frequency): Duration {
+  let step: Duration
+
+  if (typeof frequency === 'number') {
+    step = Duration.fromObject({ seconds: frequency })
+  } else if (typeof frequency === 'string') {
+    const match = /^\s*(\d+(?:\.\d+)?)\s*([a-z]+)\s*$/i.exec(frequency)
+    const unit = match ? FREQUENCY_UNITS[match[2].toLowerCase()] : undefined
+    if (!match || !unit) throw new Error(`Invalid frequency: ${frequency}`)
+    step = Duration.fromObject({ [unit]: Number(match[1]) })
+  } else {
+    step = frequency
+  }
+
+  if (!step.isValid || step.as('milliseconds') <= 0) {
+    throw new Error(
+      `Frequency must be a positive duration: ${String(frequency)}`,
+    )
+  }
+  if (step.as('days') > 1) {
+    throw new Error('Frequencies longer than a day are not supported.')
+  }
+
+  return step
 }

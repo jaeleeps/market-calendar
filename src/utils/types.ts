@@ -1,4 +1,4 @@
-import { DateTime } from 'luxon'
+import { DateTime, Duration } from 'luxon'
 
 /**
  * Labels for each trading session during a market day.
@@ -36,3 +36,24 @@ export type MarketSchedule = MarketDaySchedule[]
  * Strategy for merging multiple schedules.
  */
 export type MergeStrategy = 'outer' | 'inner'
+
+/**
+ * A session that `dateRange` can interpolate.
+ *
+ * The reference implementation also offers 'closed' and 'closed_masked', which
+ * cover the gaps *between* sessions; those are not implemented here.
+ */
+export type DateRangeSession =
+  | 'RTH'
+  | 'ETH'
+  | 'pre'
+  | 'post'
+  | 'break'
+  | 'pre_break'
+  | 'post_break'
+
+/** How the interval endpoints of each session are labelled. */
+export type IntervalClosed = 'left' | 'right' | 'both'
+
+/** A bar size: seconds, a Luxon Duration, or a string such as '15min'. */
+export type Frequency = number | Duration | string
