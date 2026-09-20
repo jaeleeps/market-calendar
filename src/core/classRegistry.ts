@@ -1,24 +1,25 @@
-import { inspect } from 'util'
-
 /**
  * A registry for managing named class instances, similar to Python's metaclass-based registry.
  */
 export class Registry<T> {
   private registry = new Map<string, new (...args: any[]) => T>()
 
+  /** Registered names in the casing they were declared with. */
+  private names: string[] = []
+
   /**
    * Registers a class with a given name and optional aliases.
+   *
+   * Lookup is case-insensitive, so "nyse" and "NYSE" resolve alike.
    *
    * @param name - Primary name of the class to register.
    * @param klass - The class constructor to register.
    * @param aliases - Optional list of additional aliases for the class.
    */
   register(name: string, klass: new (...args: any[]) => T, aliases?: string[]) {
-    this.registry.set(name, klass)
-    if (aliases) {
-      for (const alias of aliases) {
-        this.registry.set(alias, klass)
-      }
+    for (const key of [name, ...(aliases ?? [])]) {
+      this.registry.set(key.toLowerCase(), klass)
+      this.names.push(key)
     }
   }
 
@@ -31,10 +32,10 @@ export class Registry<T> {
    * @throws If no class is registered under the given name.
    */
   create(name: string, ...args: any[]): T {
-    const klass = this.registry.get(name)
+    const klass = this.registry.get(name.toLowerCase())
     if (!klass) {
       throw new Error(
-        `Class "${name}" is not registered. Available: ${[...this.registry.keys()].join(', ')}`,
+        `Class "${name}" is not registered. Available: ${this.names.join(', ')}`,
       )
     }
     return new klass(...args)
@@ -46,7 +47,7 @@ export class Registry<T> {
    * @returns An array of all names registered in the registry.
    */
   listNames(): string[] {
-    return [...this.registry.keys()]
+    return [...this.names]
   }
 }
 
