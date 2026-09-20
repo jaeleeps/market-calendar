@@ -17,8 +17,27 @@ export {
   registerCalendar,
 } from './marketCalendarFactory'
 export {
+  DateRangeSession,
+  Frequency,
+  IntervalClosed,
   MarketDaySchedule,
   MarketSchedule,
   TradingSessionLabel,
 } from './utils/types'
-export { markSession, mergeSchedules, convertFreq } from './utils/calendarUtils'
+export {
+  dateRange,
+  DateRangeOptions,
+  markSession,
+  mergeSchedules,
+  convertFreq,
+} from './utils/calendarUtils'
+export {
+  DateRangeWarning,
+  DisappearingSessionWarning,
+  InsufficientScheduleWarning,
+  MissingSessionWarning,
+  OverlappingSessionWarning,
+  WarningAction,
+  filterDateRangeWarnings,
+  resetDateRangeWarnings,
+} from './utils/warnings'

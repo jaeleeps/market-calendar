@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { HolidayCalendar } from './HolidayCalendar'
 import { ProtectedDict } from './classRegistry'
 import { Weekday } from '../utils/constants'
-import { dateRange } from '../utils/dateRange'
+import { eachDay } from '../utils/days'
 import { MarketDaySchedule, MarketSchedule } from '../utils/types'
 import { Dated, latestValue, valueOn } from '../utils/dated'
 
@@ -191,7 +191,7 @@ export abstract class MarketCalendar {
     const to = this.sessionDate(end)
     const closed = this.holidayDates(from, to)
 
-    return dateRange(from, to).filter((day) => {
+    return eachDay(from, to).filter((day) => {
       const iso = day.toISODate()!
       const trading = valueOn(this.weekmask, iso) ?? []
       return trading.includes(day.weekday) && !closed.has(iso)

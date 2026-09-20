@@ -9,10 +9,10 @@ import { DateTime, Interval } from 'luxon'
  * @returns Array of Luxon DateTime instances, one for each day in the range
  *
  * @example
- * dateRange("2023-01-01", "2023-01-03")
+ * eachDay("2023-01-01", "2023-01-03")
  * // => [2023-01-01T00:00:00Z, 2023-01-02T00:00:00Z, 2023-01-03T00:00:00Z]
  */
-export function dateRange(
+export function eachDay(
   start: string | DateTime,
   end: string | DateTime,
 ): DateTime[] {

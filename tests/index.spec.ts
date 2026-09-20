@@ -1,9 +1,15 @@
 import { test } from '@japa/runner'
-import { DateTime } from 'luxon'
+import { DateTime, Duration } from 'luxon'
 import { getCalendar, calendarNames, NYSE } from '../src'
 import { weekdayOffset, easterSunday } from '../src/utils/rules'
 import { Weekday } from '../src/utils/constants'
-import { markSession } from '../src/utils/calendarUtils'
+import { dateRange, markSession } from '../src/utils/calendarUtils'
+import {
+  MissingSessionWarning,
+  filterDateRangeWarnings,
+  resetDateRangeWarnings,
+} from '../src/utils/warnings'
+import { DateRangeSession } from '../src/utils/types'
 
 const nyse = () => new NYSE()
 const iso = (dates: DateTime[]) => dates.map((d) => d.toISODate())
@@ -324,5 +330,189 @@ test.group('markSession', () => {
       'closed',
       'rth',
     ])
+  })
+})
+
+test.group('dateRange', (group) => {
+  group.each.teardown(() => resetDateRangeWarnings())
+
+  const day = (date: string) => nyse().schedule(date, date)
+  const hhmm = (stamps: DateTime[]) => stamps.map((t) => t.toFormat('HH:mm'))
+
+  test('reproduces the reference implementation example', ({ assert }) => {
+    const sched = day('2020-01-02')
+    const opts = {
+      session: ['RTH', 'ETH'] as DateRangeSession[],
+      closed: 'left' as const,
+      forceClose: false,
+    }
+
+    assert.deepEqual(hhmm(dateRange(sched, '2h', { ...opts })), [
+      '04:00',
+      '06:00',
+      '08:00',
+      '10:00',
+      '12:00',
+      '14:00',
+      '16:00',
+      '18:00',
+    ])
+    assert.deepEqual(
+      hhmm(dateRange(sched, '2h', { ...opts, mergeAdjacent: false })),
+      [
+        '04:00',
+        '06:00',
+        '08:00',
+        '09:30',
+        '11:30',
+        '13:30',
+        '15:30',
+        '16:00',
+        '18:00',
+      ],
+    )
+  })
+
+  test('labels intervals per the closed option', ({ assert }) => {
+    const sched = day('2024-07-02')
+    assert.deepEqual(hhmm(dateRange(sched, '1h', { closed: 'left' })), [
+      '09:30',
+      '10:30',
+      '11:30',
+      '12:30',
+      '13:30',
+      '14:30',
+      '15:30',
+    ])
+    assert.deepEqual(hhmm(dateRange(sched, '1h', { closed: 'right' })), [
+      '10:30',
+      '11:30',
+      '12:30',
+      '13:30',
+      '14:30',
+      '15:30',
+      '16:00',
+    ])
+    assert.deepEqual(hhmm(dateRange(sched, '1h', { closed: 'both' })), [
+      '09:30',
+      '10:30',
+      '11:30',
+      '12:30',
+      '13:30',
+      '14:30',
+      '15:30',
+      '16:00',
+    ])
+  })
+
+  test('handles a grid that overshoots the close', ({ assert }) => {
+    // RTH is 6.5h, so an hourly grid lands on 16:30.
+    const sched = day('2024-07-02')
+    const last = (forceClose: boolean | null) =>
+      hhmm(dateRange(sched, '1h', { closed: 'right', forceClose })).pop()
+
+    assert.equal(last(true), '16:00') // pinned to the close
+    assert.equal(last(false), '15:30') // overshooting bar dropped
+    assert.equal(last(null), '16:30') // left as calculated
+  })
+
+  test('accepts seconds, strings and Durations', ({ assert }) => {
+    const sched = day('2024-07-02')
+    const expected = hhmm(dateRange(sched, 3600, { closed: 'left' }))
+
+    assert.deepEqual(hhmm(dateRange(sched, '1h', { closed: 'left' })), expected)
+    assert.deepEqual(
+      hhmm(dateRange(sched, '60min', { closed: 'left' })),
+      expected,
+    )
+    assert.deepEqual(
+      hhmm(
+        dateRange(sched, Duration.fromObject({ hours: 1 }), { closed: 'left' }),
+      ),
+      expected,
+    )
+  })
+
+  test('rejects unusable frequencies', ({ assert }) => {
+    const sched = day('2024-07-02')
+    assert.throws(() => dateRange(sched, 'fortnightly'), /Invalid frequency/)
+    assert.throws(() => dateRange(sched, 0), /positive duration/)
+    assert.throws(() => dateRange(sched, '2d'), /longer than a day/)
+  })
+
+  test('warns when a session vanishes', ({ assert }) => {
+    // The July 3rd half-day is 3.5h, shorter than the 4h frequency.
+    filterDateRangeWarnings('error')
+    assert.throws(
+      () =>
+        dateRange(day('2024-07-03'), '4h', {
+          closed: 'right',
+          forceClose: false,
+        }),
+      /disappeared/,
+    )
+  })
+
+  test('warns when a session runs into the next', ({ assert }) => {
+    filterDateRangeWarnings('error')
+    assert.throws(
+      () =>
+        dateRange(day('2024-07-02'), '6h', {
+          session: ['pre', 'RTH'],
+          closed: 'right',
+          forceClose: null,
+          mergeAdjacent: false,
+        }),
+      /falls after the start of the following session/,
+    )
+  })
+
+  test('warns when the schedule lacks a session', ({ assert }) => {
+    filterDateRangeWarnings('error')
+    try {
+      dateRange(day('2024-07-02'), '1h', { session: 'break' })
+      assert.fail('expected a MissingSessionWarning')
+    } catch (err) {
+      assert.instanceOf(err, MissingSessionWarning)
+      assert.deepEqual([...(err as MissingSessionWarning).sessions], ['break'])
+      assert.includeMembers(
+        [...(err as MissingSessionWarning).columns],
+        ['break_start', 'break_end'],
+      )
+    }
+  })
+
+  test('honours the ignore filter', ({ assert }) => {
+    filterDateRangeWarnings('ignore')
+    assert.deepEqual(
+      dateRange(day('2024-07-02'), '1h', { session: 'break' }),
+      [],
+    )
+  })
+
+  test('splits regular hours around a lunch break', ({ assert }) => {
+    const at = (t: string) => et(`2024-07-02T${t}`)
+    const sched = [
+      {
+        date: at('00:00'),
+        market_open: at('09:00'),
+        break_start: at('11:30'),
+        break_end: at('12:30'),
+        market_close: at('15:00'),
+      },
+    ]
+
+    assert.deepEqual(hhmm(dateRange(sched, '1h', { closed: 'left' })), [
+      '09:00',
+      '10:00',
+      '11:00',
+      '12:30',
+      '13:30',
+      '14:30',
+    ])
+    assert.deepEqual(
+      hhmm(dateRange(sched, '1h', { session: 'break', closed: 'left' })),
+      ['11:30'],
+    )
   })
 })
