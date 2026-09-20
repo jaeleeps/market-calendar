@@ -99,11 +99,14 @@ export abstract class MarketCalendar {
   /** One-off full-day closures that no rule describes. */
   adhocHolidays: DateTime[] = []
 
-  /** Days that open later or earlier than usual. */
-  specialOpens: SpecialTime[] = []
-
-  /** Days that close earlier or later than usual. */
-  specialCloses: SpecialTime[] = []
+  /**
+   * Days that observe a time other than the regular one, keyed by the market
+   * time column they override.
+   *
+   * Any column can have them, not just the open and the close: NYSE shortens
+   * its post-market session on the days it closes early.
+   */
+  specialTimes: Partial<Record<MarketTimeKey, SpecialTime[]>> = {}
 
   /**
    * Replace an existing market time.
@@ -196,8 +199,8 @@ export abstract class MarketCalendar {
   }
 
   /**
-   * Market times for every trading day in the range, with special opens and
-   * closes applied on the dates that observe them.
+   * Market times for every trading day in the range, with special times
+   * applied on the dates that observe them.
    *
    * @param start Start date (inclusive)
    * @param end End date (inclusive)
@@ -205,23 +208,18 @@ export abstract class MarketCalendar {
    */
   schedule(start: DateLike, end: DateLike): MarketSchedule {
     const days = this.validDays(start, end)
-    const opens = this.specialTimes(this.specialOpens, days)
-    const closes = this.specialTimes(this.specialCloses, days)
+    const special = this.specialTimeDates(days)
 
     return days.map((date) => {
       const iso = date.toISODate()!
       const times: Record<string, DateTime> = {}
-      for (const key of this.regularMarketTimes.keys()) {
+      for (const name of this.regularMarketTimes.keys()) {
+        const key = name as MarketTimeKey
         // A market time the exchange had not introduced yet simply has no
         // column on that day.
-        const time = this.timeOn(key as MarketTimeKey, date)
+        const time = special.get(key)?.get(iso) ?? this.timeOn(key, date)
         if (time) times[key] = this.at(date, time)
       }
-
-      const open = opens.get(iso)
-      if (open) times.market_open = this.at(date, open)
-      const close = closes.get(iso)
-      if (close) times.market_close = this.at(date, close)
 
       if (!times.market_open || !times.market_close) {
         throw new Error(
@@ -239,10 +237,11 @@ export abstract class MarketCalendar {
   }
 
   /**
-   * Whether the market is trading at a given instant.
+   * Whether the market is in regular trading hours at a given instant.
    *
    * A configured lunch break counts as closed; the open and close themselves
-   * count as open.
+   * count as open. Extended-hours columns such as `pre` and `post` are not
+   * considered — read them off `schedule()` when you need them.
    *
    * @param dt The instant to test
    * @returns true when `dt` falls inside that day's trading hours
@@ -310,31 +309,37 @@ export abstract class MarketCalendar {
   }
 
   /**
-   * Map trading dates to the special time they observe. Later entries win, so a
-   * calendar can layer a specific rule over a broader one.
+   * Resolve every special time to the trading dates that observe it, grouped by
+   * the column it overrides. Later entries win, so a calendar can layer a
+   * specific rule over a broader one.
    */
-  private specialTimes(
-    specials: SpecialTime[],
+  private specialTimeDates(
     days: DateTime[],
-  ): Map<string, TimeOfDay> {
-    const observed = new Map<string, TimeOfDay>()
-    if (specials.length === 0 || days.length === 0) return observed
+  ): Map<MarketTimeKey, Map<string, TimeOfDay>> {
+    const byColumn = new Map<MarketTimeKey, Map<string, TimeOfDay>>()
+    if (days.length === 0) return byColumn
 
     const sessions = new Set(days.map((day) => day.toISODate()!))
     const from = days[0]
     const to = days[days.length - 1]
 
-    for (const { time, calendar, adhocDates } of specials) {
-      const dates = [
-        ...(calendar ? calendar.getHolidaysInRange(from, to) : []),
-        ...(adhocDates ?? []),
-      ]
-      for (const date of dates) {
-        const iso = date.toISODate()
-        if (iso && sessions.has(iso)) observed.set(iso, time)
+    for (const [key, specials] of Object.entries(this.specialTimes)) {
+      const observed = new Map<string, TimeOfDay>()
+
+      for (const { time, calendar, adhocDates } of specials ?? []) {
+        const dates = [
+          ...(calendar ? calendar.getHolidaysInRange(from, to) : []),
+          ...(adhocDates ?? []),
+        ]
+        for (const date of dates) {
+          const iso = date.toISODate()
+          if (iso && sessions.has(iso)) observed.set(iso, time)
+        }
       }
+
+      if (observed.size > 0) byColumn.set(key as MarketTimeKey, observed)
     }
 
-    return observed
+    return byColumn
   }
 }

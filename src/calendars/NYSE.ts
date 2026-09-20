@@ -13,7 +13,8 @@ import * as us from '../holidays/us'
 /**
  * New York Stock Exchange.
  *
- * Hours are 09:30–16:00 Eastern today, and the class records the earlier eras
+ * Regular hours are 09:30–16:00 Eastern today, with a 04:00 pre-market and a
+ * 20:00 post-market session, and the class records the earlier eras
  * too: the open moved from 10:00 in 1985, the close from 15:00 to 15:30 in 1952
  * and to 16:00 in 1974, and Saturday trading ran until 1952-09-29 with a noon
  * close. Full-day closures come from the dated US rules in `holidays/us`, so
@@ -44,6 +45,7 @@ export class NYSE extends MarketCalendar {
   private static readonly SATURDAY_CLOSE: TimeOfDay = [12, 0]
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay>[]>([
+    ['pre', [{ from: null, value: [4, 0] }]],
     [
       'market_open',
       [
@@ -59,6 +61,7 @@ export class NYSE extends MarketCalendar {
         { from: '1974-01-01', value: [16, 0] },
       ],
     ],
+    ['post', [{ from: null, value: [20, 0] }]],
   ])
 
   override weekmask: Dated<Weekday[]>[] = [
@@ -131,25 +134,31 @@ export class NYSE extends MarketCalendar {
     ...us.USNationalDaysofMourning,
   ]
 
-  override specialCloses = [
-    {
-      time: [14, 0] as [number, number],
-      calendar: new HolidayCalendar([
-        us.ChristmasEveBefore1993,
-        us.USBlackFridayBefore1993,
-      ]),
-    },
-    {
-      time: [13, 0] as [number, number],
-      calendar: new HolidayCalendar([
-        us.ChristmasEveInOrAfter1993,
-        us.USBlackFridayInOrAfter1993,
-        us.MonTuesThursBeforeIndependenceDay,
-        us.FridayAfterIndependenceDayPre2013,
-        us.WednesdayBeforeIndependenceDayPost2013,
-      ]),
-    },
-  ]
+  /**
+   * The half-days that close at 13:00. The post-market session on those days
+   * ends at 17:00 rather than 20:00, so both rules read from one calendar.
+   */
+  private static readonly EARLY_CLOSE_1PM = new HolidayCalendar([
+    us.ChristmasEveInOrAfter1993,
+    us.USBlackFridayInOrAfter1993,
+    us.MonTuesThursBeforeIndependenceDay,
+    us.FridayAfterIndependenceDayPre2013,
+    us.WednesdayBeforeIndependenceDayPost2013,
+  ])
+
+  override specialTimes = {
+    market_close: [
+      {
+        time: [14, 0] as TimeOfDay,
+        calendar: new HolidayCalendar([
+          us.ChristmasEveBefore1993,
+          us.USBlackFridayBefore1993,
+        ]),
+      },
+      { time: [13, 0] as TimeOfDay, calendar: NYSE.EARLY_CLOSE_1PM },
+    ],
+    post: [{ time: [17, 0] as TimeOfDay, calendar: NYSE.EARLY_CLOSE_1PM }],
+  }
 
   /**
    * The Saturday sessions NYSE ran until 1952 closed at noon, whatever the
