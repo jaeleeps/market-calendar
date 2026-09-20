@@ -1,7 +1,8 @@
-import { DateTime, Interval } from 'luxon'
-import { MarketSchedule, TradingSessionLabel } from './types'
+import { DateTime } from 'luxon'
+import { MarketDaySchedule, MarketSchedule, TradingSessionLabel } from './types'
 import { DEFAULT_LABEL_MAP } from './sessionUtils'
 import { Holiday } from '../core/Holiday'
+import { HolidayCalendar } from '../core/HolidayCalendar'
 
 /**
  * Returns a mapping of timestamps to trading session labels based on schedule.
@@ -16,50 +17,66 @@ export function markSession(
   timestamps: DateTime[],
   labelMap: Partial<Record<TradingSessionLabel, string>> = {},
 ): Record<string, string> {
-  const sessionLabels: TradingSessionLabel[] = ['closed']
-  const columns = new Set(Object.keys(schedule[0] || {}))
-  const neededCols = new Set<string>()
-
-  function extendStatement(session: TradingSessionLabel, parts: string[]) {
-    if (parts.every((p) => columns.has(p))) {
-      parts.forEach((p) => neededCols.add(p))
-      sessionLabels.push(session)
-    }
+  const sessionLabels = availableSessions(schedule)
+  const rows = new Map<string, MarketDaySchedule>()
+  for (const day of schedule) {
+    const iso = day.date.toISODate()
+    if (iso) rows.set(iso, day)
   }
 
-  extendStatement('pre', ['pre', 'market_open'])
-  if (columns.has('break_start') && columns.has('break_end')) {
-    extendStatement('rth_pre_break', ['market_open', 'break_start'])
-    extendStatement('break', ['break_start', 'break_end'])
-    extendStatement('rth_post_break', ['break_end', 'market_close'])
-  } else {
-    extendStatement('rth', ['market_open', 'market_close'])
-  }
-  extendStatement('post', ['market_close', 'post'])
-
-  const mappedLabels = sessionLabels.map(
-    (label) => labelMap[label] ?? DEFAULT_LABEL_MAP[label],
-  )
+  // Timestamps are matched against the session date in the schedule's own zone.
+  const zone = schedule[0]?.date.zone
   const result: Record<string, string> = {}
 
   for (const ts of timestamps) {
-    for (const day of schedule) {
-      const { date, ...times } = day
-      const label = getLabelForTimestamp(ts, times, sessionLabels)
-      if (label) {
-        result[ts.toISO()] = labelMap[label] ?? DEFAULT_LABEL_MAP[label]
-        break
-      }
-    }
+    const key = ts.toISO()
+    if (!key) continue
+
+    const local = zone ? ts.setZone(zone) : ts
+    const row = rows.get(local.toISODate() ?? '')
+    const label = row
+      ? getLabelForTimestamp(local, row, sessionLabels)
+      : 'closed'
+    result[key] = labelMap[label] ?? DEFAULT_LABEL_MAP[label]
   }
+
   return result
 }
 
 /**
- * Merge multiple market schedules by combining overlapping open/close intervals
+ * Determine which session labels a schedule can actually resolve, based on the
+ * market time columns it carries.
+ *
+ * @param schedule - The market schedule
+ * @returns Session labels in the order they should be tested
+ */
+function availableSessions(schedule: MarketSchedule): TradingSessionLabel[] {
+  const columns = new Set(Object.keys(schedule[0] ?? {}))
+  const sessions: TradingSessionLabel[] = []
+
+  const add = (session: TradingSessionLabel, parts: string[]) => {
+    if (parts.every((part) => columns.has(part))) sessions.push(session)
+  }
+
+  add('pre', ['pre', 'market_open'])
+  if (columns.has('break_start') && columns.has('break_end')) {
+    add('rth_pre_break', ['market_open', 'break_start'])
+    add('break', ['break_start', 'break_end'])
+    add('rth_post_break', ['break_end', 'market_close'])
+  } else {
+    add('rth', ['market_open', 'market_close'])
+  }
+  add('post', ['market_close', 'post'])
+
+  return sessions
+}
+
+/**
+ * Merge multiple market schedules by combining overlapping open/close intervals.
  *
  * @param schedules - List of market schedules
  * @param how - 'outer' for union, 'inner' for intersection
+ * @returns The merged market schedule
  */
 export function mergeSchedules(
   schedules: MarketSchedule[],
@@ -94,13 +111,18 @@ export function mergeSchedules(
 
 /**
  * Return the label for a timestamp based on session timing.
+ *
+ * @param ts - The DateTime timestamp
+ * @param times - The session times for a day
+ * @param labels - List of possible session labels
+ * @returns The matching label, or 'closed' when no session contains it
  */
 function getLabelForTimestamp(
   ts: DateTime,
   times: Record<string, DateTime>,
   labels: TradingSessionLabel[],
-): TradingSessionLabel | undefined {
-  const checks: Record<TradingSessionLabel, [DateTime, DateTime]> = {
+): TradingSessionLabel {
+  const checks: Partial<Record<TradingSessionLabel, [DateTime, DateTime]>> = {
     pre: [times['pre'], times['market_open']],
     rth_pre_break: [times['market_open'], times['break_start']],
     break: [times['break_start'], times['break_end']],
@@ -111,7 +133,9 @@ function getLabelForTimestamp(
   }
 
   for (const label of labels) {
-    const [start, end] = checks[label] || []
+    const range = checks[label]
+    if (!range) continue
+    const [start, end] = range
     if (start && end && ts >= start && ts <= end) {
       return label
     }
@@ -119,10 +143,16 @@ function getLabelForTimestamp(
   return 'closed'
 }
 
+/**
+ * Return the minimum of an array of DateTime values
+ */
 function min(dates: DateTime[]): DateTime {
   return dates.reduce((a, b) => (a < b ? a : b))
 }
 
+/**
+ * Return the maximum of an array of DateTime values
+ */
 function max(dates: DateTime[]): DateTime {
   return dates.reduce((a, b) => (a > b ? a : b))
 }
@@ -148,7 +178,7 @@ export function convertFreq(
     let key: string
     switch (frequency) {
       case 'day':
-        key = dt.toISODate()
+        key = dt.toISODate() ?? ''
         break
       case 'week':
         key = `${dt.weekYear}-W${dt.weekNumber}`
@@ -179,12 +209,11 @@ export function convertFreq(
  * @returns The static date if it's a one-time holiday
  */
 export function isSingleObservance(holiday: Holiday): DateTime | undefined {
-  return holiday.startDate?.equals(holiday.endDate!)
+  if (!holiday.startDate || !holiday.endDate) return undefined
+  return holiday.startDate.equals(holiday.endDate)
     ? holiday.startDate
     : undefined
 }
-
-import { HolidayCalendar } from '@/core/HolidayCalendar'
 
 /**
  * Return all static holiday dates if the calendar contains only single-observance holidays.
@@ -196,7 +225,7 @@ export function allSingleObservanceRules(
   calendar: HolidayCalendar,
 ): DateTime[] | undefined {
   const dates = calendar.rules
-    .map((rule) => isSingleObservance(rule))
-    .filter(Boolean) as DateTime[]
+    .map((rule: Holiday) => isSingleObservance(rule))
+    .filter((d): d is DateTime => Boolean(d))
   return dates.length === calendar.rules.length ? dates : undefined
 }
