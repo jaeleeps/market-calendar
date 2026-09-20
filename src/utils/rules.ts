@@ -1,0 +1,96 @@
+import { DateTime } from 'luxon'
+import { Weekday } from './constants'
+
+/**
+ * Move Sunday holidays to Monday
+ * @param dt DateTime object
+ * @returns Adjusted DateTime
+ */
+export function sundayToMonday(dt: DateTime): DateTime {
+  return dt.weekday === Weekday.SUNDAY ? dt.plus({ days: 1 }) : dt
+}
+
+/**
+ * Move holiday to nearest weekday (Friday if Saturday, Monday if Sunday)
+ * @param dt DateTime object
+ * @returns Adjusted DateTime
+ */
+export function nearestWorkday(dt: DateTime): DateTime {
+  if (dt.weekday === Weekday.SATURDAY) return dt.minus({ days: 1 })
+  if (dt.weekday === Weekday.SUNDAY) return dt.plus({ days: 1 })
+  return dt
+}
+
+/**
+ * Return an offset that rolls a date to the nth occurrence of a weekday,
+ * counting from the date itself (pandas `DateOffset(weekday=MO(n))` semantics).
+ *
+ * A positive `n` rolls forward, a negative `n` rolls backward, and the date
+ * itself counts as the first occurrence when it already falls on `weekday`.
+ * Anchoring on the date rather than the month is what lets a single rule express
+ * both "3rd Monday of January" (anchor Jan 1) and "Monday on or after May 25".
+ *
+ * @param weekday Weekday enum value
+ * @param n Occurrence to roll to; must be non-zero (default is 1)
+ * @returns Function that calculates the correct date
+ *
+ * @example
+ * weekdayOffset(Weekday.MONDAY, 3)(DateTime.utc(2024, 1, 1)) // 2024-01-15 (MLK Day)
+ * weekdayOffset(Weekday.MONDAY, 1)(DateTime.utc(2024, 5, 25)) // 2024-05-27 (Memorial Day)
+ * weekdayOffset(Weekday.THURSDAY, -1)(DateTime.utc(1930, 11, 30)) // 1930-11-27
+ */
+export function weekdayOffset(weekday: Weekday, n = 1) {
+  if (n === 0) {
+    throw new Error('weekdayOffset requires a non-zero occurrence count')
+  }
+
+  return (dt: DateTime): DateTime => {
+    if (n > 0) {
+      const daysAhead = (weekday - dt.weekday + 7) % 7
+      return dt.plus({ days: daysAhead + (n - 1) * 7 })
+    }
+    const daysBehind = (dt.weekday - weekday + 7) % 7
+    return dt.minus({ days: daysBehind + (-n - 1) * 7 })
+  }
+}
+
+/**
+ * Offset that adds 1 day
+ * @param dt DateTime object
+ * @returns DateTime + 1 day
+ */
+export const plusOneDay = (dt: DateTime): DateTime => dt.plus({ days: 1 })
+
+/**
+ * Compute Gregorian Easter Sunday for a year (anonymous Gregorian algorithm).
+ *
+ * @param year Gregorian year
+ * @returns Easter Sunday as a UTC date
+ */
+export function easterSunday(year: number): DateTime {
+  const a = year % 19
+  const b = Math.floor(year / 100)
+  const c = year % 100
+  const d = Math.floor(b / 4)
+  const e = b % 4
+  const f = Math.floor((b + 8) / 25)
+  const g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4)
+  const k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const total = h + l - 7 * m + 114
+
+  return DateTime.utc(year, Math.floor(total / 31), (total % 31) + 1)
+}
+
+/**
+ * Observance that maps any date in a year to that year's Good Friday.
+ *
+ * @param dt Any DateTime in the target year
+ * @returns Good Friday (Easter Sunday minus two days)
+ */
+export function goodFridayObservance(dt: DateTime): DateTime {
+  return easterSunday(dt.year).minus({ days: 2 })
+}

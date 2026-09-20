@@ -1,26 +1,39 @@
-import { XNYS } from './calendars/XNYS'
-import { ExchangeCalendar } from './calendars/base'
+import { MarketCalendar } from './core/MarketCalendar'
+import { Registry } from './core/classRegistry'
+import { NYSE } from './calendars/NYSE'
+
+const registry = new Registry<MarketCalendar>()
 
 /**
- * Supported calendar instances mapped by ID.
+ * Register a calendar under its name and declared aliases.
+ *
+ * @param klass - A concrete MarketCalendar subclass
  */
-const CALENDARS: Record<string, () => ExchangeCalendar> = {
-  XNYS: () => new XNYS(),
-  NYSE: () => new XNYS(), // alias for readability
+export function registerCalendar(
+  klass: (new () => MarketCalendar) & { aliases: string[] },
+): void {
+  const [name, ...aliases] = klass.aliases.length ? klass.aliases : [klass.name]
+  registry.register(name, klass, aliases)
 }
+
+registerCalendar(NYSE)
 
 /**
  * Returns a new calendar instance for the given market code.
  *
  * @param name - Market code like "XNYS" or "NYSE"
- * @returns A concrete ExchangeCalendar instance
- * @throws Error if calendar name is not supported
+ * @returns A concrete MarketCalendar instance
+ * @throws Error if the calendar name is not registered
  */
-export function getCalendar(name: string): ExchangeCalendar {
-  const key = name.toUpperCase()
-  const factory = CALENDARS[key]
-  if (!factory) {
-    throw new Error(`Unknown market calendar: "${name}"`)
-  }
-  return factory()
+export function getCalendar(name: string): MarketCalendar {
+  return registry.create(name)
+}
+
+/**
+ * Lists every registered calendar name and alias.
+ *
+ * @returns An array of names accepted by `getCalendar`
+ */
+export function calendarNames(): string[] {
+  return registry.listNames()
 }

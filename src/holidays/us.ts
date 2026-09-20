@@ -1,7 +1,13 @@
 import { DateTime } from 'luxon'
 import { Holiday } from '../core/Holiday'
-import { sundayToMonday, nearestWorkday, weekdayOffset } from '../core/rules'
-import { Weekday } from '../core/constants'
+import {
+  sundayToMonday,
+  nearestWorkday,
+  weekdayOffset,
+  plusOneDay,
+  goodFridayObservance,
+} from '../utils/rules'
+import { Weekday } from '../utils/constants'
 
 const { MONDAY, TUESDAY, WEDNESDAY, THURSDAY, FRIDAY } = Weekday
 
@@ -145,12 +151,26 @@ export const USIndependenceDayBefore1954 = new Holiday({
   observance: sundayToMonday,
 })
 
-export const USIndependence = new Holiday({
+export const USIndependenceDay = new Holiday({
   name: 'July 4th',
   month: 7,
   day: 4,
-  endDate: DateTime.utc(1954, 1, 1),
+  startDate: DateTime.utc(1954, 1, 1),
   observance: nearestWorkday,
+})
+
+export const USLaborDay = new Holiday({
+  name: 'Labor Day',
+  month: 9,
+  day: 1,
+  offset: weekdayOffset(MONDAY, 1),
+})
+
+export const GoodFriday = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  observance: goodFridayObservance,
 })
 
 export const USElectionDay1848to1967 = new Holiday({
@@ -175,7 +195,7 @@ export const USVeteransDay1934to1953 = new Holiday({
   name: 'Veteran Day',
   month: 11,
   day: 11,
-  startDate: DateTime.utc(1834, 1, 1),
+  startDate: DateTime.utc(1934, 1, 1),
   endDate: DateTime.utc(1953, 12, 31),
   observance: sundayToMonday,
 })
@@ -239,7 +259,7 @@ export const USBlackFridayBefore1993 = new Holiday({
   day: 1,
   startDate: DateTime.utc(1992, 1, 1),
   endDate: DateTime.utc(1993, 1, 1),
-  offset: [weekdayOffset(THURSDAY, 4), (dt: DateTime) => dt.plus({ days: 1 })],
+  offset: [weekdayOffset(THURSDAY, 4), plusOneDay],
 })
 
 export const USBlackFridayInOrAfter1993 = new Holiday({
@@ -247,7 +267,7 @@ export const USBlackFridayInOrAfter1993 = new Holiday({
   month: 11,
   day: 1,
   startDate: DateTime.utc(1993, 1, 1),
-  offset: [weekdayOffset(THURSDAY, 4), (dt: DateTime) => dt.plus({ days: 1 })],
+  offset: [weekdayOffset(THURSDAY, 4), plusOneDay],
 })
 
 export const BattleOfGettysburg = new Holiday({

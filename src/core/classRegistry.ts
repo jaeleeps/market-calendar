@@ -1,24 +1,25 @@
-import { inspect } from 'util'
-
 /**
  * A registry for managing named class instances, similar to Python's metaclass-based registry.
  */
 export class Registry<T> {
   private registry = new Map<string, new (...args: any[]) => T>()
 
+  /** Registered names in the casing they were declared with. */
+  private names: string[] = []
+
   /**
    * Registers a class with a given name and optional aliases.
+   *
+   * Lookup is case-insensitive, so "nyse" and "NYSE" resolve alike.
    *
    * @param name - Primary name of the class to register.
    * @param klass - The class constructor to register.
    * @param aliases - Optional list of additional aliases for the class.
    */
   register(name: string, klass: new (...args: any[]) => T, aliases?: string[]) {
-    this.registry.set(name, klass)
-    if (aliases) {
-      for (const alias of aliases) {
-        this.registry.set(alias, klass)
-      }
+    for (const key of [name, ...(aliases ?? [])]) {
+      this.registry.set(key.toLowerCase(), klass)
+      this.names.push(key)
     }
   }
 
@@ -31,10 +32,10 @@ export class Registry<T> {
    * @throws If no class is registered under the given name.
    */
   create(name: string, ...args: any[]): T {
-    const klass = this.registry.get(name)
+    const klass = this.registry.get(name.toLowerCase())
     if (!klass) {
       throw new Error(
-        `Class "${name}" is not registered. Available: ${[...this.registry.keys()].join(', ')}`,
+        `Class "${name}" is not registered. Available: ${this.names.join(', ')}`,
       )
     }
     return new klass(...args)
@@ -46,7 +47,7 @@ export class Registry<T> {
    * @returns An array of all names registered in the registry.
    */
   listNames(): string[] {
-    return [...this.registry.keys()]
+    return [...this.names]
   }
 }
 
@@ -54,34 +55,65 @@ export class Registry<T> {
  * A dictionary that prevents direct mutation after initialization.
  * Useful for maintaining read-only mappings like market times.
  */
-export class ProtectedDict<T = any> extends Map<string, T> {
-  constructor(initial?: Record<string, T>) {
-    super()
-    if (initial) {
-      for (const [k, v] of Object.entries(initial)) {
-        this.set(k, v)
-      }
-    }
+/**
+ * A key-value dictionary that protects against direct item mutation.
+ * You must use `.changeTime`, `.addTime`, or `.removeTime` to modify.
+ */
+export class ProtectedDict<T> extends Map<string, T> {
+  private _INIT_RAN_NORMALLY: boolean
+
+  constructor(entries?: [string, T][]) {
+    super(entries)
     this._INIT_RAN_NORMALLY = true
   }
 
-  private _INIT_RAN_NORMALLY: boolean
+  /**
+   * Internal use for setting values without triggering protection.
+   */
+  _set(key: string, value: T): void {
+    super.set(key, value)
+  }
 
+  /**
+   * Internal use for deleting values without triggering protection.
+   */
+  _del(key: string): void {
+    super.delete(key)
+  }
+
+  /**
+   * Prevent direct use of `.set()`
+   * @throws TypeError
+   */
   override set(key: string, value: T): this {
     if (!this._INIT_RAN_NORMALLY) return super.set(key, value)
-    throw new TypeError('You cannot set a value directly...')
+    throw new TypeError(
+      'You cannot set a value directly. Use .changeTime, .addTime or .removeTime instead.',
+    )
   }
 
+  /**
+   * Prevent direct use of `.delete()`
+   * @throws TypeError
+   */
   override delete(key: string): boolean {
     if (!this._INIT_RAN_NORMALLY) return super.delete(key)
-    throw new TypeError('You cannot delete an item directly...')
+    throw new TypeError(
+      'You cannot delete an item directly. Use .changeTime, .addTime or .removeTime instead.',
+    )
   }
 
-  copy(): ProtectedDict<T> {
-    return new ProtectedDict<T>(Object.fromEntries(this))
+  /**
+   * Pretty-print the contents of the ProtectedDict.
+   */
+  override toString(): string {
+    return `ProtectedDict(${JSON.stringify(Object.fromEntries(this.entries()), null, 2)})`
   }
 
-  toString(): string {
-    return `ProtectedDict(${JSON.stringify(Object.fromEntries(this), null, 2)})`
+  /**
+   * Make a mutable shallow copy of the dictionary.
+   */
+  copy(): Map<string, T> {
+    return new Map(this.entries())
   }
 }

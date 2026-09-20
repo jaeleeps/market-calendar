@@ -18,7 +18,10 @@
     "prepare": "husky install"
   },
   "lint-staged": {
-    "*.ts": "eslint --fix"
+    "*.{ts,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
   },
   "devDependencies": {
     "@eslint/js": "^9.31.0",
@@ -33,7 +36,7 @@
     "globals": "^16.3.0",
     "husky": "^9.1.7",
     "japa": "^4.0.0",
-    "lint-staged": "^16.1.2",
+    "lint-staged": "^16.1.5",
     "prettier": "^3.6.2",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
