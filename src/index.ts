@@ -22,6 +22,7 @@ export {
   IntervalClosed,
   MarketDaySchedule,
   MarketSchedule,
+  MergeStrategy,
   TradingSessionLabel,
 } from './utils/types'
 export {
