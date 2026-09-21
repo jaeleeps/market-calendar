@@ -38,12 +38,9 @@ export type MarketSchedule = MarketDaySchedule[]
 export type MergeStrategy = 'outer' | 'inner'
 
 /**
- * A session that `dateRange` can interpolate.
- *
- * The reference implementation also offers 'closed' and 'closed_masked', which
- * cover the gaps *between* sessions; those are not implemented here.
+ * A session inside a single trading day.
  */
-export type DateRangeSession =
+export type IntradaySession =
   | 'RTH'
   | 'ETH'
   | 'pre'
@@ -51,6 +48,14 @@ export type DateRangeSession =
   | 'break'
   | 'pre_break'
   | 'post_break'
+
+/**
+ * A session that `dateRange` can interpolate.
+ *
+ * 'closed' and 'closed_masked' cover the gaps *between* trading days rather
+ * than a span inside one.
+ */
+export type DateRangeSession = IntradaySession | 'closed' | 'closed_masked'
 
 /** How the interval endpoints of each session are labelled. */
 export type IntervalClosed = 'left' | 'right' | 'both'

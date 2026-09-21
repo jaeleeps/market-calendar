@@ -19,6 +19,7 @@ export {
 export {
   DateRangeSession,
   Frequency,
+  IntradaySession,
   IntervalClosed,
   MarketDaySchedule,
   MarketSchedule,
