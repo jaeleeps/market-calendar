@@ -19,6 +19,7 @@ export { CBOEEquityOptions, CBOEIndexOptions, CFE } from './calendars/CBOE'
 export { IEX } from './calendars/IEX'
 export { JPX } from './calendars/JPX'
 export { LSE } from './calendars/LSE'
+export { TSX } from './calendars/TSX'
 export {
   getCalendar,
   calendarNames,
