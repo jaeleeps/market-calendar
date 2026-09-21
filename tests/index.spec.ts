@@ -1118,3 +1118,66 @@ test.group('discontinued market times', () => {
     assert.isTrue(cal.openAtTime(at('2021-06-03', '12:30')))
   })
 })
+
+test.group('schedule options', () => {
+  const cal = nyse()
+  const times = (schedule: ReturnType<typeof cal.schedule>) => {
+    const [day] = schedule
+    return Object.keys(day)
+      .filter((key) => key !== 'date')
+      .sort()
+      .map((key) => `${key}=${day[key].toFormat('HH:mm')}`)
+      .join(' ')
+  }
+
+  test('returns the exchange timezone by default', ({ assert }) => {
+    assert.equal(
+      times(cal.schedule('2024-07-02', '2024-07-02')),
+      'market_close=16:00 market_open=09:30 post=20:00 pre=04:00',
+    )
+  })
+
+  test('converts the market times to a requested zone', ({ assert }) => {
+    assert.equal(
+      times(cal.schedule('2024-07-02', '2024-07-02', { tz: 'UTC' })),
+      'market_close=20:00 market_open=13:30 post=00:00 pre=08:00',
+    )
+  })
+
+  test('keeps the session date as the session date', ({ assert }) => {
+    // Converting the date too would move a session onto the wrong day.
+    const [day] = cal.schedule('2024-07-02', '2024-07-02', { tz: 'UTC' })
+    assert.equal(day.date.toISODate(), '2024-07-02')
+  })
+
+  test('publishes only the requested columns', ({ assert }) => {
+    const [day] = cal.schedule('2024-07-02', '2024-07-02', {
+      marketTimes: ['market_open', 'market_close'],
+    })
+    assert.deepEqual(Object.keys(day).sort(), [
+      'date',
+      'market_close',
+      'market_open',
+    ])
+  })
+
+  test('insists on the open and the close', ({ assert }) => {
+    assert.throws(
+      () =>
+        cal.schedule('2024-07-02', '2024-07-02', {
+          marketTimes: ['pre', 'market_close'],
+        }),
+      /must include market_open/,
+    )
+  })
+
+  test('builds a schedule from days already worked out', ({ assert }) => {
+    const days = cal.validDays('2024-07-01', '2024-07-03')
+    const fromDays = cal.scheduleFromDays(days)
+    assert.deepEqual(
+      fromDays.map((d) => d.date.toISODate()),
+      ['2024-07-01', '2024-07-02', '2024-07-03'],
+    )
+    assert.deepEqual(fromDays, cal.schedule('2024-07-01', '2024-07-03'))
+  })
+})

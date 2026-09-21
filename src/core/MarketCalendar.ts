@@ -56,6 +56,17 @@ interface MarketEvent {
   opens: boolean
 }
 
+/** Options for building a schedule. */
+export interface ScheduleOptions {
+  /** Timezone for the market times. Defaults to the exchange's own. */
+  tz?: string
+  /**
+   * Which market times to publish, or 'all'. Defaults to every one the
+   * calendar defines; `market_open` and `market_close` are always required.
+   */
+  marketTimes?: MarketTimeKey[] | 'all'
+}
+
 /** Options for asking whether the market is open. */
 export interface OpenAtTimeOptions {
   /**
@@ -283,19 +294,53 @@ export abstract class MarketCalendar {
    *
    * @param start Start date (inclusive)
    * @param end End date (inclusive)
+   * @param options Timezone and columns
    * @returns One row per trading day
    */
-  schedule(start: DateLike, end: DateLike): MarketSchedule {
-    const days = this.validDays(start, end)
+  schedule(
+    start: DateLike,
+    end: DateLike,
+    options: ScheduleOptions = {},
+  ): MarketSchedule {
+    return this.scheduleFromDays(this.validDays(start, end), options)
+  }
+
+  /**
+   * Market times for a given list of trading days.
+   *
+   * The days are taken as given: nothing checks them against the holiday
+   * rules, which is what makes this useful for re-using a set of days that
+   * was already worked out.
+   *
+   * @param days Session dates, as from `validDays()`
+   * @param options Timezone and columns
+   * @returns One row per day
+   */
+  scheduleFromDays(
+    days: DateTime[],
+    options: ScheduleOptions = {},
+  ): MarketSchedule {
+    const { tz = this.tz, marketTimes = 'all' } = options
+
+    const keys =
+      marketTimes === 'all'
+        ? ([...this.regularMarketTimes.keys()] as MarketTimeKey[])
+        : marketTimes
+    for (const required of REQUIRED_MARKET_TIMES) {
+      if (!keys.includes(required)) {
+        throw new Error(`A schedule must include ${required}.`)
+      }
+    }
+
     const special = this.specialTimeDates(days)
 
     return days.map((date) => {
       const iso = date.toISODate()!
       const times: Record<string, DateTime> = {}
-      for (const name of this.regularMarketTimes.keys()) {
-        const key = name as MarketTimeKey
-        // A market time the exchange had not introduced yet simply has no
-        // column on that day.
+
+      for (const key of keys) {
+        // A market time the exchange had not introduced yet, or has since
+        // dropped, simply has no column on that day.
         const time = special.get(key)?.get(iso) ?? this.timeOn(key, date)
         if (time) times[key] = this.at(date, time)
       }
@@ -306,11 +351,15 @@ export abstract class MarketCalendar {
         )
       }
 
+      const zoned = Object.fromEntries(
+        Object.entries(times).map(([key, at]) => [key, at.setZone(tz)]),
+      )
+
       return {
-        ...times,
+        ...zoned,
         date,
-        market_open: times.market_open,
-        market_close: times.market_close,
+        market_open: zoned.market_open,
+        market_close: zoned.market_close,
       } satisfies MarketDaySchedule
     })
   }
