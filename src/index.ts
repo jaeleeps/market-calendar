@@ -23,6 +23,7 @@ export {
   MarketDaySchedule,
   MarketSchedule,
   MergeStrategy,
+  TimestampLike,
   TradingSessionLabel,
 } from './utils/types'
 export {
