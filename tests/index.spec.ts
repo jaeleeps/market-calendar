@@ -1398,3 +1398,69 @@ test.group('saturdays helper', () => {
     assert.throws(() => saturdays('1945-07-08', '1945-09-01'), /not a Saturday/)
   })
 })
+
+test.group('NYSE special closes and opens', () => {
+  const cal = nyse()
+  const session = (date: string) => {
+    const [day] = cal.schedule(date, date)
+    return day
+      ? `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+      : 'closed'
+  }
+
+  test('closes early for one-off events', ({ assert }) => {
+    assert.equal(session('1910-05-07'), '10:00-11:00') // King Edward VII died
+    assert.equal(session('1920-09-16'), '10:00-12:00') // Wall Street bombing
+    assert.equal(session('1963-11-22'), '10:00-14:07') // Kennedy assassination
+    assert.equal(session('1981-03-30'), '10:00-15:17') // Reagan shot
+    assert.equal(session('1997-10-27'), '09:30-15:30') // circuit breaker
+    assert.equal(session('2005-06-01'), '09:30-15:56') // system failure
+  })
+
+  test('opens late for one-off events', ({ assert }) => {
+    assert.equal(session('2001-09-17'), '09:33-16:00') // first day back after 9/11
+    assert.equal(session('1996-01-08'), '11:00-14:00') // Blizzard of 1996
+  })
+
+  test('closes at 13:00 on Christmas Eve only from 1999', ({ assert }) => {
+    // The recurring rule starts in 1999; 1996-1998 are listed date by date.
+    assert.equal(session('2024-12-24'), '09:30-13:00')
+    assert.equal(session('1996-12-24'), '09:30-13:00')
+    // 1994 and 1995 had no early close: the rule did not hold yet and
+    // neither year is in the list.
+    assert.equal(session('1994-12-23'), '09:30-16:00')
+    assert.equal(session('1995-12-22'), '09:30-16:00')
+  })
+
+  test('closes at 14:00 on the listed Christmas Eves', ({ assert }) => {
+    assert.equal(session('1974-12-24'), '10:00-14:00')
+    assert.equal(session('1992-12-24'), '09:30-14:00')
+  })
+
+  test('conforms the post session to any early close', ({ assert }) => {
+    const [kennedy] = cal.schedule('1963-11-22', '1963-11-22')
+    assert.equal(kennedy.post.toFormat('HH:mm'), '14:07')
+    // A 13:00 half-day keeps its declared 17:00 post instead.
+    const [halfDay] = cal.schedule('2024-07-03', '2024-07-03')
+    assert.equal(halfDay.post.toFormat('HH:mm'), '17:00')
+  })
+
+  test('reports the early closes and late opens of a year', ({ assert }) => {
+    const year = cal.schedule('2024-01-01', '2024-12-31')
+    assert.deepEqual(
+      cal.earlyCloses(year).map((d) => d.date.toISODate()),
+      ['2024-07-03', '2024-11-29', '2024-12-24'],
+    )
+    assert.deepEqual(cal.lateOpens(year), [])
+  })
+
+  test('finds late opens now that they are modelled', ({ assert }) => {
+    // lateOpens returned nothing at all before these were ported.
+    const era = cal.schedule('1960-01-01', '2024-12-31')
+    assert.isAbove(cal.lateOpens(era).length, 0)
+    assert.include(
+      cal.lateOpens(era).map((d) => d.date.toISODate()),
+      '2001-09-17',
+    )
+  })
+})
