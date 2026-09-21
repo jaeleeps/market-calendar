@@ -20,6 +20,10 @@ export { IEX } from './calendars/IEX'
 export { JPX } from './calendars/JPX'
 export { LSE } from './calendars/LSE'
 export { TSX } from './calendars/TSX'
+export { ASX } from './calendars/ASX'
+export { Forex } from './calendars/Forex'
+export { ICE } from './calendars/ICE'
+export { EUREX, EUREXBond, EUREXPrePost, OSE, SIX } from './calendars/europe'
 export {
   getCalendar,
   calendarNames,
