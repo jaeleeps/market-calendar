@@ -407,13 +407,14 @@ test.group('extended hours', () => {
     })
   })
 
-  test('leaves the post session alone on 14:00 closes', ({ assert }) => {
-    // The pre-1993 Christmas Eve close is not one of the 1pm rules.
+  test('conforms the post session to a 14:00 close', ({ assert }) => {
+    // The pre-1993 Christmas Eve close is not one of the 1pm rules, so post
+    // has no special of its own and is pulled back to the early close.
     assert.deepEqual(columns('1992-12-24'), {
       pre: '04:00',
       open: '09:30',
       close: '14:00',
-      post: '20:00',
+      post: '14:00',
     })
   })
 
@@ -1116,5 +1117,108 @@ test.group('discontinued market times', () => {
       DateTime.fromISO(`${date}T${time}`, { zone: 'UTC' })
     assert.isFalse(cal.openAtTime(at('2019-06-03', '12:30')))
     assert.isTrue(cal.openAtTime(at('2021-06-03', '12:30')))
+  })
+})
+
+test.group('schedule options', () => {
+  const cal = nyse()
+  const times = (schedule: ReturnType<typeof cal.schedule>) => {
+    const [day] = schedule
+    return Object.keys(day)
+      .filter((key) => key !== 'date')
+      .sort()
+      .map((key) => `${key}=${day[key].toFormat('HH:mm')}`)
+      .join(' ')
+  }
+
+  test('returns the exchange timezone by default', ({ assert }) => {
+    assert.equal(
+      times(cal.schedule('2024-07-02', '2024-07-02')),
+      'market_close=16:00 market_open=09:30 post=20:00 pre=04:00',
+    )
+  })
+
+  test('converts the market times to a requested zone', ({ assert }) => {
+    assert.equal(
+      times(cal.schedule('2024-07-02', '2024-07-02', { tz: 'UTC' })),
+      'market_close=20:00 market_open=13:30 post=00:00 pre=08:00',
+    )
+  })
+
+  test('keeps the session date as the session date', ({ assert }) => {
+    // Converting the date too would move a session onto the wrong day.
+    const [day] = cal.schedule('2024-07-02', '2024-07-02', { tz: 'UTC' })
+    assert.equal(day.date.toISODate(), '2024-07-02')
+  })
+
+  test('publishes only the requested columns', ({ assert }) => {
+    const [day] = cal.schedule('2024-07-02', '2024-07-02', {
+      marketTimes: ['market_open', 'market_close'],
+    })
+    assert.deepEqual(Object.keys(day).sort(), [
+      'date',
+      'market_close',
+      'market_open',
+    ])
+  })
+
+  test('insists on the open and the close', ({ assert }) => {
+    assert.throws(
+      () =>
+        cal.schedule('2024-07-02', '2024-07-02', {
+          marketTimes: ['pre', 'market_close'],
+        }),
+      /must include market_open/,
+    )
+  })
+
+  test('builds a schedule from days already worked out', ({ assert }) => {
+    const days = cal.validDays('2024-07-01', '2024-07-03')
+    const fromDays = cal.scheduleFromDays(days)
+    assert.deepEqual(
+      fromDays.map((d) => d.date.toISODate()),
+      ['2024-07-01', '2024-07-02', '2024-07-03'],
+    )
+    assert.deepEqual(fromDays, cal.schedule('2024-07-01', '2024-07-03'))
+  })
+})
+
+test.group('special time clamping', () => {
+  const cal = nyse()
+  const columns = (date: string, options = {}) => {
+    const [day] = cal.schedule(date, date, options)
+    return `open=${day.market_open.toFormat('HH:mm')} close=${day.market_close.toFormat('HH:mm')} post=${day.post.toFormat('HH:mm')}`
+  }
+
+  test('pulls a column inside an early close', ({ assert }) => {
+    // 1992 has no special post, so the regular 20:00 conforms to the close.
+    assert.equal(columns('1992-12-24'), 'open=09:30 close=14:00 post=14:00')
+  })
+
+  test('leaves a column that has a special of its own', ({ assert }) => {
+    // A 13:00 close comes with its own 17:00 post, which is authoritative.
+    assert.equal(columns('2024-07-03'), 'open=09:30 close=13:00 post=17:00')
+  })
+
+  test('false applies the special without conforming others', ({ assert }) => {
+    assert.equal(
+      columns('1992-12-24', { forceSpecialTimes: false }),
+      'open=09:30 close=14:00 post=20:00',
+    )
+  })
+
+  test('null ignores special times entirely', ({ assert }) => {
+    assert.equal(
+      columns('1992-12-24', { forceSpecialTimes: null }),
+      'open=09:30 close=16:00 post=20:00',
+    )
+    assert.equal(
+      columns('2024-07-03', { forceSpecialTimes: null }),
+      'open=09:30 close=16:00 post=20:00',
+    )
+  })
+
+  test('leaves a regular day untouched', ({ assert }) => {
+    assert.equal(columns('2024-07-02'), 'open=09:30 close=16:00 post=20:00')
   })
 })

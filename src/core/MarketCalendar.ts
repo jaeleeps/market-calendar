@@ -56,6 +56,23 @@ interface MarketEvent {
   opens: boolean
 }
 
+/** Options for building a schedule. */
+export interface ScheduleOptions {
+  /** Timezone for the market times. Defaults to the exchange's own. */
+  tz?: string
+  /**
+   * Which market times to publish, or 'all'. Defaults to every one the
+   * calendar defines; `market_open` and `market_close` are always required.
+   */
+  marketTimes?: MarketTimeKey[] | 'all'
+  /**
+   * How a special open or close affects the other columns: true conforms
+   * them to it, false leaves them alone, null ignores special times
+   * altogether. Defaults to true.
+   */
+  forceSpecialTimes?: boolean | null
+}
+
 /** Options for asking whether the market is open. */
 export interface OpenAtTimeOptions {
   /**
@@ -283,19 +300,61 @@ export abstract class MarketCalendar {
    *
    * @param start Start date (inclusive)
    * @param end End date (inclusive)
+   * @param options Timezone, columns, and how special times apply
    * @returns One row per trading day
    */
-  schedule(start: DateLike, end: DateLike): MarketSchedule {
-    const days = this.validDays(start, end)
-    const special = this.specialTimeDates(days)
+  schedule(
+    start: DateLike,
+    end: DateLike,
+    options: ScheduleOptions = {},
+  ): MarketSchedule {
+    return this.scheduleFromDays(this.validDays(start, end), options)
+  }
+
+  /**
+   * Market times for a given list of trading days.
+   *
+   * The days are taken as given: nothing checks them against the holiday
+   * rules, which is what makes this useful for re-using a set of days that
+   * was already worked out.
+   *
+   * @param days Session dates, as from `validDays()`
+   * @param options Timezone, columns, and how special times apply
+   * @returns One row per day
+   */
+  scheduleFromDays(
+    days: DateTime[],
+    options: ScheduleOptions = {},
+  ): MarketSchedule {
+    const {
+      tz = this.tz,
+      marketTimes = 'all',
+      forceSpecialTimes = true,
+    } = options
+
+    const keys =
+      marketTimes === 'all'
+        ? ([...this.regularMarketTimes.keys()] as MarketTimeKey[])
+        : marketTimes
+    for (const required of REQUIRED_MARKET_TIMES) {
+      if (!keys.includes(required)) {
+        throw new Error(`A schedule must include ${required}.`)
+      }
+    }
+
+    // Ignoring special times means never looking them up.
+    const special =
+      forceSpecialTimes === null
+        ? new Map<MarketTimeKey, Map<string, TimeOfDay>>()
+        : this.specialTimeDates(days)
 
     return days.map((date) => {
       const iso = date.toISODate()!
       const times: Record<string, DateTime> = {}
-      for (const name of this.regularMarketTimes.keys()) {
-        const key = name as MarketTimeKey
-        // A market time the exchange had not introduced yet simply has no
-        // column on that day.
+
+      for (const key of keys) {
+        // A market time the exchange had not introduced yet, or has since
+        // dropped, simply has no column on that day.
         const time = special.get(key)?.get(iso) ?? this.timeOn(key, date)
         if (time) times[key] = this.at(date, time)
       }
@@ -306,13 +365,59 @@ export abstract class MarketCalendar {
         )
       }
 
+      if (forceSpecialTimes === true) {
+        this.conformToSpecialTimes(times, keys, special, iso, date)
+      }
+
+      const zoned = Object.fromEntries(
+        Object.entries(times).map(([key, at]) => [key, at.setZone(tz)]),
+      )
+
       return {
-        ...times,
+        ...zoned,
         date,
-        market_open: times.market_open,
-        market_close: times.market_close,
+        market_open: zoned.market_open,
+        market_close: zoned.market_close,
       } satisfies MarketDaySchedule
     })
+  }
+
+  /**
+   * Pull the other columns inside a special open or close.
+   *
+   * A day that closes early has no business publishing a post session that
+   * outlasts it. A column with a special time of its own is authoritative
+   * though, so those are put back afterwards: NYSE's half-days close at 13:00
+   * and still run a post session until 17:00.
+   */
+  private conformToSpecialTimes(
+    times: Record<string, DateTime>,
+    keys: MarketTimeKey[],
+    special: Map<MarketTimeKey, Map<string, TimeOfDay>>,
+    iso: string,
+    date: DateTime,
+  ): void {
+    if (special.get('market_open')?.has(iso)) {
+      for (const key of keys) {
+        if (times[key] && times[key] < times.market_open) {
+          times[key] = times.market_open
+        }
+      }
+    }
+
+    if (special.get('market_close')?.has(iso)) {
+      for (const key of keys) {
+        if (times[key] && times[key] > times.market_close) {
+          times[key] = times.market_close
+        }
+      }
+    }
+
+    for (const key of keys) {
+      if (key === 'market_open' || key === 'market_close') continue
+      const own = special.get(key)?.get(iso)
+      if (own) times[key] = this.at(date, own)
+    }
   }
 
   /**
