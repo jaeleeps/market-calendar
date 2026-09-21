@@ -1542,3 +1542,56 @@ test.group('CME calendars', () => {
     assert.equal(row(bond, '2021-04-02'), 'Thu 01 17:00 to 10:00') // a short one
   })
 })
+
+test.group('CBOE and IEX calendars', () => {
+  const hours = (name: string, date: string) => {
+    const [day] = getCalendar(name).schedule(date, date)
+    return day
+      ? `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+      : 'closed'
+  }
+
+  test('resolves each CBOE market by alias', ({ assert }) => {
+    assert.equal(getCalendar('CBOE_Futures').name, 'CFE')
+    assert.equal(getCalendar('cfe').name, 'CFE')
+    assert.equal(getCalendar('CBOE_Equity_Options').name, 'CBOE_Equity_Options')
+    assert.equal(getCalendar('Investors_Exchange').name, 'IEX')
+  })
+
+  test('keeps the CBOE markets on their own hours', ({ assert }) => {
+    assert.equal(hours('CFE', '2024-06-03'), '08:30-15:15')
+    assert.equal(hours('CBOE_Equity_Options', '2024-06-03'), '08:30-15:00')
+    assert.equal(hours('CBOE_Index_Options', '2024-06-03'), '08:30-15:15')
+  })
+
+  test('closes the CBOE markets early at their own times', ({ assert }) => {
+    // Black Friday: the futures close at 12:15, the options at 12:00.
+    assert.equal(hours('CFE', '2024-11-29'), '08:30-12:15')
+    assert.equal(hours('CBOE_Equity_Options', '2024-11-29'), '08:30-12:00')
+    assert.equal(hours('CBOE_Index_Options', '2024-11-29'), '08:30-12:00')
+  })
+
+  test('shares the US holidays', ({ assert }) => {
+    for (const name of ['CFE', 'CBOE_Equity_Options', 'IEX']) {
+      assert.equal(hours(name, '2024-07-04'), 'closed')
+      assert.equal(hours(name, '2024-03-29'), 'closed') // Good Friday
+    }
+  })
+
+  test('gives IEX its shorter extended hours', ({ assert }) => {
+    const [day] = getCalendar('IEX').schedule('2024-06-03', '2024-06-03')
+    assert.equal(day.pre.toFormat('HH:mm'), '08:00') // NYSE opens pre at 04:00
+    assert.equal(day.post.toFormat('HH:mm'), '17:00') // and closes post at 20:00
+  })
+
+  test('has no IEX session before the exchange opened', ({ assert }) => {
+    const iex = getCalendar('IEX')
+    assert.lengthOf(iex.validDays('2010-01-01', '2010-12-31'), 0)
+    // It opened on 2013-08-25, leaving 89 sessions that year.
+    assert.lengthOf(iex.validDays('2013-01-01', '2013-12-31'), 89)
+    assert.deepEqual(
+      iex.validDays('2013-08-20', '2013-08-27').map((d) => d.toISODate()),
+      ['2013-08-26', '2013-08-27'],
+    )
+  })
+})

@@ -2,6 +2,8 @@ import { MarketCalendar } from './core/MarketCalendar'
 import { Registry } from './core/classRegistry'
 import { NYSE } from './calendars/NYSE'
 import { CMEBond, CMEEquity } from './calendars/CME'
+import { CBOEEquityOptions, CBOEIndexOptions, CFE } from './calendars/CBOE'
+import { IEX } from './calendars/IEX'
 
 const registry = new Registry<MarketCalendar>()
 
@@ -20,6 +22,10 @@ export function registerCalendar(
 registerCalendar(NYSE)
 registerCalendar(CMEEquity)
 registerCalendar(CMEBond)
+registerCalendar(CFE)
+registerCalendar(CBOEEquityOptions)
+registerCalendar(CBOEIndexOptions)
+registerCalendar(IEX)
 
 /**
  * Returns a new calendar instance for the given market code.
