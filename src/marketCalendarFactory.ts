@@ -11,6 +11,15 @@ import { ASX } from './calendars/ASX'
 import { Forex } from './calendars/Forex'
 import { ICE } from './calendars/ICE'
 import { EUREX, EUREXBond, EUREXPrePost, OSE, SIX } from './calendars/europe'
+import {
+  CMEGlobexCrypto,
+  CMEGlobexEnergyAndMetals,
+  CMEGlobexEquities,
+  CMEGlobexFX,
+  CMEGlobexFixedIncome,
+  CMEGlobexGrains,
+  CMEGlobexLivestock,
+} from './calendars/CMEGlobex'
 
 const registry = new Registry<MarketCalendar>()
 
@@ -44,6 +53,13 @@ registerCalendar(EUREXBond)
 registerCalendar(EUREXPrePost)
 registerCalendar(OSE)
 registerCalendar(SIX)
+registerCalendar(CMEGlobexCrypto)
+registerCalendar(CMEGlobexEnergyAndMetals)
+registerCalendar(CMEGlobexEquities)
+registerCalendar(CMEGlobexFX)
+registerCalendar(CMEGlobexFixedIncome)
+registerCalendar(CMEGlobexGrains)
+registerCalendar(CMEGlobexLivestock)
 
 /**
  * Returns a new calendar instance for the given market code.

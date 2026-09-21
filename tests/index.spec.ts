@@ -2094,3 +2094,81 @@ test.group('European, Australian and 24-hour calendars', () => {
     )
   })
 })
+
+test.group('CME Globex products', () => {
+  const day = (name: string, date: string) => {
+    const [row] = getCalendar(name).schedule(date, date)
+    if (!row) return 'closed'
+    const brk = row.break_start
+      ? ` break ${row.break_start.toFormat('HH:mm')}-${row.break_end.toFormat('HH:mm')}`
+      : ''
+    return `${row.market_open.toFormat('ccc dd HH:mm')}-${row.market_close.toFormat('HH:mm')}${brk}`
+  }
+
+  test('opens the evening before on the overnight products', ({ assert }) => {
+    for (const name of [
+      'CME Globex Equity',
+      'CME Globex Fixed Income',
+      'CMEGlobex_FX',
+      'CMEGlobex_Energy',
+      'CME Globex Crypto',
+    ]) {
+      assert.equal(day(name, '2024-06-03'), 'Sun 02 17:00-16:00')
+    }
+  })
+
+  test('closes each product at its own time on a half-day', ({ assert }) => {
+    // Memorial Day 2024: every product treats it differently.
+    assert.equal(day('CME Globex Equity', '2024-05-27'), 'Sun 26 17:00-12:00')
+    assert.equal(day('CMEGlobex_Energy', '2024-05-27'), 'Sun 26 17:00-13:30')
+    assert.equal(day('CMEGlobex_Livestock', '2024-05-27'), 'closed')
+  })
+
+  test('differs on Good Friday by product', ({ assert }) => {
+    assert.equal(day('CME Globex Equity', '2024-03-29'), 'Thu 28 17:00-08:15')
+    assert.equal(
+      day('CME Globex Fixed Income', '2024-03-29'),
+      'Thu 28 17:00-10:15',
+    )
+    // Energy and the agricultural products shut outright.
+    assert.equal(day('CMEGlobex_Energy', '2024-03-29'), 'closed')
+    assert.equal(day('CMEGlobex_Grains', '2024-03-29'), 'closed')
+  })
+
+  test('closes early on the Friday after Thanksgiving', ({ assert }) => {
+    assert.equal(day('CME Globex Equity', '2024-11-29'), 'Thu 28 17:00-12:15')
+    assert.equal(day('CMEGlobex_Energy', '2024-11-29'), 'Thu 28 17:00-12:45')
+    assert.equal(day('CMEGlobex_Livestock', '2024-11-29'), 'Fri 29 08:30-12:05')
+  })
+
+  test('gives the agricultural products their own hours', ({ assert }) => {
+    // Livestock trades a daytime session; grains run overnight with a break.
+    assert.equal(day('CMEGlobex_Livestock', '2024-06-03'), 'Mon 03 08:30-13:05')
+    assert.equal(
+      day('CMEGlobex_Grains', '2024-06-03'),
+      'Sun 02 19:00-13:20 break 07:45-08:30',
+    )
+  })
+
+  test('shuts every product for Christmas and New Year', ({ assert }) => {
+    for (const name of [
+      'CME Globex Equity',
+      'CMEGlobex_FX',
+      'CMEGlobex_Energy',
+      'CME Globex Crypto',
+      'CMEGlobex_Grains',
+    ]) {
+      assert.equal(day(name, '2024-12-25'), 'closed')
+      assert.equal(day(name, '2024-01-01'), 'closed')
+    }
+  })
+
+  test('resolves the product aliases', ({ assert }) => {
+    assert.equal(getCalendar('CME_Currency').name, 'CME Globex FX')
+    assert.equal(
+      getCalendar('CMEGlobex_Gold').name,
+      'CME Globex Energy and Metals',
+    )
+    assert.equal(getCalendar('cmeglobex_oilseeds').name, 'CME Globex Grains')
+  })
+})
