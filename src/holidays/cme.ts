@@ -1,6 +1,13 @@
 import { DateTime } from 'luxon'
 import { Holiday } from '../core/Holiday'
-import { easterSunday, goodFridayObservance } from '../utils/rules'
+import {
+  easterOffset,
+  easterSunday,
+  goodFridayObservance,
+  nearestWorkday,
+  plusOneDay,
+  weekdayOffset,
+} from '../utils/rules'
 import { Weekday } from '../utils/constants'
 
 /**
@@ -218,3 +225,266 @@ export const BondsGoodFridayOpen = dates([
 
 /** Easter is re-exported so a calendar can state its own Good Friday rules. */
 export { easterSunday }
+
+/**
+ * The era-bounded US holidays the CME products observe.
+ *
+ * Each of these is an ordinary US holiday that CME treated differently before
+ * and after some date — it stopped trading through Memorial Day in 2013, for
+ * instance — so the same holiday appears twice with the eras marked. Which
+ * of the pair a product uses, and at what time it closes, is the product's
+ * own business.
+ */
+
+export const USMartinLutherKingJrAfter1998Before2022 = new Holiday({
+  name: 'Dr. Martin Luther King Jr. Day',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(1998, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 3),
+})
+
+export const USMartinLutherKingJrAfter1998Before2015 = new Holiday({
+  name: 'Dr. Martin Luther King Jr. Day',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(1998, 1, 1),
+  endDate: DateTime.utc(2014, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 3),
+})
+
+export const USMartinLutherKingJrAfter2015 = new Holiday({
+  name: 'Dr. Martin Luther King Jr. Day',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(2015, 1, 1),
+  offset: weekdayOffset(Weekday.MONDAY, 3),
+})
+
+export const USMartinLutherKingJrAfter1998Before2016FridayBefore = new Holiday({
+  name: 'Dr. Martin Luther King Jr. Day',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(1998, 1, 1),
+  endDate: DateTime.utc(2015, 12, 31),
+  offset: [weekdayOffset(Weekday.MONDAY, 3), weekdayOffset(Weekday.FRIDAY, -1)],
+})
+
+export const USPresidentsDayBefore2022 = new Holiday({
+  name: 'Presidents Day',
+  month: 2,
+  day: 1,
+  startDate: DateTime.utc(1971, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 3),
+})
+
+export const USPresidentsDayBefore2015 = new Holiday({
+  name: 'Presidents Day',
+  month: 2,
+  day: 1,
+  startDate: DateTime.utc(1971, 1, 1),
+  endDate: DateTime.utc(2014, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 3),
+})
+
+export const USPresidentsDayAfter2015 = new Holiday({
+  name: 'Presidents Day',
+  month: 2,
+  day: 1,
+  startDate: DateTime.utc(2015, 1, 1),
+  offset: weekdayOffset(Weekday.MONDAY, 3),
+})
+
+export const USPresidentsDayBefore2016FridayBefore = new Holiday({
+  name: 'Presidents Day',
+  month: 2,
+  day: 1,
+  startDate: DateTime.utc(1971, 1, 1),
+  endDate: DateTime.utc(2015, 12, 31),
+  offset: [weekdayOffset(Weekday.MONDAY, 3), weekdayOffset(Weekday.FRIDAY, -1)],
+})
+
+export const GoodFridayBefore2021 = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  endDate: DateTime.utc(2020, 12, 31),
+  observance: easterOffset(-2),
+})
+
+export const GoodFriday2009 = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(2009, 1, 1),
+  endDate: DateTime.utc(2009, 12, 31),
+  observance: easterOffset(-3),
+})
+
+export const GoodFriday2021 = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(2021, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  observance: easterOffset(-2),
+})
+
+export const GoodFriday2010 = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(2010, 1, 1),
+  endDate: DateTime.utc(2010, 12, 31),
+  observance: easterOffset(-2),
+})
+
+export const GoodFriday2012 = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(2012, 1, 1),
+  endDate: DateTime.utc(2012, 12, 31),
+  observance: easterOffset(-2),
+})
+
+export const GoodFriday2015 = new Holiday({
+  name: 'Good Friday',
+  month: 1,
+  day: 1,
+  startDate: DateTime.utc(2015, 1, 1),
+  endDate: DateTime.utc(2015, 12, 31),
+  observance: easterOffset(-2),
+})
+
+export const USMemorialDay2021AndPrior = new Holiday({
+  name: 'Memorial Day',
+  month: 5,
+  day: 25,
+  startDate: DateTime.utc(1971, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 1),
+})
+
+export const USMemorialDay2013AndPrior = new Holiday({
+  name: 'Memorial Day',
+  month: 5,
+  day: 25,
+  startDate: DateTime.utc(1971, 1, 1),
+  endDate: DateTime.utc(2013, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 1),
+})
+
+export const USMemorialDayAfter2013 = new Holiday({
+  name: 'Memorial Day',
+  month: 5,
+  day: 25,
+  startDate: DateTime.utc(2014, 1, 1),
+  offset: weekdayOffset(Weekday.MONDAY, 1),
+})
+
+export const USMemorialDay2015AndPriorFridayBefore = new Holiday({
+  name: 'Memorial Day',
+  month: 5,
+  day: 25,
+  startDate: DateTime.utc(1971, 1, 1),
+  endDate: DateTime.utc(2015, 12, 31),
+  offset: [weekdayOffset(Weekday.MONDAY, 1), weekdayOffset(Weekday.FRIDAY, -1)],
+})
+
+export const USIndependenceDayBefore2022 = new Holiday({
+  name: 'July 4th',
+  month: 7,
+  day: 4,
+  startDate: DateTime.utc(1954, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  observance: nearestWorkday,
+})
+
+export const USIndependenceDayBefore2014 = new Holiday({
+  name: 'July 4th',
+  month: 7,
+  day: 4,
+  startDate: DateTime.utc(1954, 1, 1),
+  endDate: DateTime.utc(2013, 12, 31),
+  observance: nearestWorkday,
+})
+
+export const USIndependenceDayAfter2014 = new Holiday({
+  name: 'July 4th',
+  month: 7,
+  day: 4,
+  startDate: DateTime.utc(2014, 1, 1),
+  observance: nearestWorkday,
+})
+
+export const USLaborDayStarting1887Before2022 = new Holiday({
+  name: 'Labor Day',
+  month: 9,
+  day: 1,
+  startDate: DateTime.utc(1887, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 1),
+})
+
+export const USLaborDayStarting1887Before2014 = new Holiday({
+  name: 'Labor Day',
+  month: 9,
+  day: 1,
+  startDate: DateTime.utc(1887, 1, 1),
+  endDate: DateTime.utc(2013, 12, 31),
+  offset: weekdayOffset(Weekday.MONDAY, 1),
+})
+
+export const USLaborDayStarting1887Before2015FridayBefore = new Holiday({
+  name: 'Labor Day',
+  month: 9,
+  day: 1,
+  startDate: DateTime.utc(1887, 1, 1),
+  endDate: DateTime.utc(2014, 12, 31),
+  offset: [weekdayOffset(Weekday.MONDAY, 1), weekdayOffset(Weekday.FRIDAY, -1)],
+})
+
+export const USLaborDayStarting1887After2014 = new Holiday({
+  name: 'Labor Day',
+  month: 9,
+  day: 1,
+  startDate: DateTime.utc(2014, 1, 1),
+  offset: weekdayOffset(Weekday.MONDAY, 1),
+})
+
+export const USThanksgivingBefore2022 = new Holiday({
+  name: 'ThanksgivingFriday',
+  month: 11,
+  day: 1,
+  startDate: DateTime.utc(1942, 1, 1),
+  endDate: DateTime.utc(2021, 12, 31),
+  offset: weekdayOffset(Weekday.THURSDAY, 4),
+})
+
+export const USThanksgivingBefore2014 = new Holiday({
+  name: 'ThanksgivingFriday',
+  month: 11,
+  day: 1,
+  startDate: DateTime.utc(1942, 1, 1),
+  endDate: DateTime.utc(2013, 12, 31),
+  offset: weekdayOffset(Weekday.THURSDAY, 4),
+})
+
+export const USThanksgivingAfter2014 = new Holiday({
+  name: 'ThanksgivingFriday',
+  month: 11,
+  day: 1,
+  startDate: DateTime.utc(2014, 1, 1),
+  offset: weekdayOffset(Weekday.THURSDAY, 4),
+})
+
+export const USThanksgivingFriday = new Holiday({
+  name: 'ThanksgivingFriday',
+  month: 11,
+  day: 1,
+  startDate: DateTime.utc(1942, 1, 1),
+  offset: [weekdayOffset(Weekday.THURSDAY, 4), plusOneDay],
+})

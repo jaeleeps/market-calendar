@@ -25,6 +25,15 @@ export { Forex } from './calendars/Forex'
 export { ICE } from './calendars/ICE'
 export { EUREX, EUREXBond, EUREXPrePost, OSE, SIX } from './calendars/europe'
 export {
+  CMEGlobexCrypto,
+  CMEGlobexEnergyAndMetals,
+  CMEGlobexEquities,
+  CMEGlobexFX,
+  CMEGlobexFixedIncome,
+  CMEGlobexGrains,
+  CMEGlobexLivestock,
+} from './calendars/CMEGlobex'
+export {
   getCalendar,
   calendarNames,
   registerCalendar,
