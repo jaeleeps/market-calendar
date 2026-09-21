@@ -12,3 +12,6 @@ dist
 
 .vscode/*
 .idea
+
+# Local planning notes
+NOTES.md
