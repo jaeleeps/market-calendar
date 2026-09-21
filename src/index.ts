@@ -33,12 +33,14 @@ export {
   convertFreq,
 } from './utils/calendarUtils'
 export {
+  CalendarWarning,
   DateRangeWarning,
   DisappearingSessionWarning,
+  DroppedMarketTimesWarning,
   InsufficientScheduleWarning,
   MissingSessionWarning,
   OverlappingSessionWarning,
   WarningAction,
-  filterDateRangeWarnings,
-  resetDateRangeWarnings,
+  filterCalendarWarnings,
+  resetCalendarWarnings,
 } from './utils/warnings'

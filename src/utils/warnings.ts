@@ -1,10 +1,40 @@
 /**
- * Base class for all DateRange-related warnings
+ * Base class for every warning the calendar utilities raise.
  */
-export class DateRangeWarning extends Error {
+export class CalendarWarning extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CalendarWarning'
+  }
+}
+
+/**
+ * Base class for warnings raised while interpolating a schedule.
+ */
+export class DateRangeWarning extends CalendarWarning {
   constructor(message: string) {
     super(message)
     this.name = 'DateRangeWarning'
+  }
+}
+
+/**
+ * Warning raised when merging schedules discards market times.
+ *
+ * Only the date, open and close survive a merge: a break or an
+ * extended-hours session has no meaning across exchanges.
+ */
+export class DroppedMarketTimesWarning extends CalendarWarning {
+  /** The columns left out of the merged schedule. */
+  readonly columns: readonly string[]
+
+  constructor(columns: string[]) {
+    super(
+      `Merging schedules drops ${columns.join(', ')}; only date, ` +
+        'market_open and market_close are carried through.',
+    )
+    this.name = 'DroppedMarketTimesWarning'
+    this.columns = columns
   }
 }
 
@@ -18,31 +48,32 @@ export class DateRangeWarning extends Error {
 export type WarningAction = 'warn' | 'ignore' | 'error'
 
 /** Constructor of a warning class, used to key the action registry. */
-type WarningClass = new (...args: never[]) => DateRangeWarning
+type WarningClass = new (...args: never[]) => CalendarWarning
 
 const actions = new Map<WarningClass, WarningAction>()
 
 /**
- * Choose how a class of DateRange warnings is reported.
+ * Choose how a class of calendar warnings is reported.
  *
  * The most specific registration wins, so a rule for one subclass overrides a
- * rule set for DateRangeWarning.
+ * rule set for a base class.
  *
  * @param action - How to report warnings of this class
  * @param source - The warning class to configure; defaults to all of them
  *
  * @example
- * filterDateRangeWarnings('error', DisappearingSessionWarning)
+ * filterCalendarWarnings('error', DisappearingSessionWarning)
+ * filterCalendarWarnings('ignore', DateRangeWarning)
  */
-export function filterDateRangeWarnings(
+export function filterCalendarWarnings(
   action: WarningAction,
-  source: WarningClass = DateRangeWarning as WarningClass,
+  source: WarningClass = CalendarWarning as WarningClass,
 ): void {
   actions.set(source, action)
 }
 
 /** Restore every warning class to the default 'warn' action. */
-export function resetDateRangeWarnings(): void {
+export function resetCalendarWarnings(): void {
   actions.clear()
 }
 
@@ -52,11 +83,11 @@ export function resetDateRangeWarnings(): void {
  * @param warning - The warning to report
  * @throws The warning itself when its action is 'error'
  */
-export function emitDateRangeWarning(warning: DateRangeWarning): void {
+export function emitCalendarWarning(warning: CalendarWarning): void {
   let klass = warning.constructor as WarningClass | undefined
   let action: WarningAction | undefined
 
-  // Walk up to DateRangeWarning so the most specific registration wins.
+  // Walk the chain so the most specific registration wins.
   while (klass && !action) {
     action = actions.get(klass)
     klass = Object.getPrototypeOf(klass) as WarningClass | undefined
