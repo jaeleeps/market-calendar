@@ -1958,3 +1958,139 @@ test.group('TSX calendar', () => {
     assert.equal(hours('2001-09-13'), '09:30-16:00')
   })
 })
+
+test.group('European, Australian and 24-hour calendars', () => {
+  const holidays = (name: string, year: number) =>
+    getCalendar(name)
+      .holidays(`${year}-01-01`, `${year}-12-31`)
+      .map((d) => d.toISODate())
+  const session = (name: string, date: string) => {
+    const [day] = getCalendar(name).schedule(date, date)
+    return day
+      ? `${day.market_open.toFormat('ccc dd HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+      : 'closed'
+  }
+
+  test('ASX observes the Australian holidays', ({ assert }) => {
+    assert.deepEqual(holidays('ASX', 2024), [
+      '2024-01-01',
+      '2024-01-26', // Australia Day
+      '2024-03-29',
+      '2024-04-01', // Easter
+      '2024-04-25', // ANZAC Day
+      '2024-06-10', // the Queen's Birthday
+      '2024-12-25',
+      '2024-12-26',
+    ])
+    assert.equal(session('ASX', '2024-06-03'), 'Mon 03 10:00-16:10')
+  })
+
+  test('ASX pushes a weekend Christmas onto the next free days', ({
+    assert,
+  }) => {
+    // Christmas 2021 was a Saturday, so Boxing Day goes to the Tuesday.
+    assert.deepEqual(
+      getCalendar('ASX')
+        .holidays('2021-12-20', '2021-12-31')
+        .map((d) => d.toISODate()),
+      ['2021-12-27', '2021-12-28'],
+    )
+  })
+
+  test('ASX closes early on the eves', ({ assert }) => {
+    assert.equal(session('ASX', '2024-12-24'), 'Tue 24 10:00-14:10')
+    assert.equal(session('ASX', '2024-12-31'), 'Tue 31 10:00-14:10')
+  })
+
+  test('SIX observes the Swiss holidays', ({ assert }) => {
+    assert.deepEqual(holidays('SIX', 2024), [
+      '2024-01-01',
+      '2024-01-02', // Berthold's Day
+      '2024-03-29',
+      '2024-04-01',
+      '2024-05-01',
+      '2024-05-09', // Ascension, 39 days after Easter
+      '2024-05-20', // Whit Monday, 50 days after
+      '2024-08-01', // Swiss National Day
+      '2024-12-24',
+      '2024-12-25',
+      '2024-12-26',
+      '2024-12-31',
+    ])
+  })
+
+  test('EUREX closes early where its bond market closes outright', ({
+    assert,
+  }) => {
+    assert.deepEqual(holidays('EUREX', 2024), [
+      '2024-01-01',
+      '2024-03-29',
+      '2024-04-01',
+      '2024-05-01',
+      '2024-12-25',
+      '2024-12-26',
+    ])
+    assert.equal(session('EUREX', '2024-12-24'), 'Tue 24 08:00-12:30')
+    // The fixed income calendar shuts on those days instead.
+    assert.include(holidays('EUREX_Bond', 2024), '2024-12-24')
+    assert.include(holidays('EUREX_Bond', 2024), '2024-12-31')
+  })
+
+  test('EUREX_PrePost carries the extended sessions', ({ assert }) => {
+    const [day] = getCalendar('EUREX_Extended').schedule(
+      '2024-06-03',
+      '2024-06-03',
+    )
+    assert.equal(day.pre.toFormat('HH:mm'), '00:15')
+    assert.equal(day.market_close.toFormat('HH:mm'), '16:30')
+    assert.equal(day.post.toFormat('HH:mm'), '21:00')
+  })
+
+  test('OSE keeps the long Norwegian Easter', ({ assert }) => {
+    assert.deepEqual(holidays('OSE', 2024), [
+      '2024-01-01',
+      '2024-03-28', // Maundy Thursday
+      '2024-03-29',
+      '2024-04-01',
+      '2024-05-01',
+      '2024-05-09', // Ascension
+      '2024-05-17', // Constitution Day
+      '2024-05-20', // Whit Monday
+      '2024-12-24',
+      '2024-12-25',
+      '2024-12-26',
+      '2024-12-31',
+    ])
+    // The Wednesday before Easter is a half day.
+    assert.equal(session('OSE', '2024-03-27'), 'Wed 27 09:00-13:00')
+  })
+
+  test('ICE opens the evening before its trade date', ({ assert }) => {
+    assert.equal(session('ICE', '2024-06-03'), 'Sun 02 20:01-18:00')
+    assert.deepEqual(holidays('ICE', 2024), [
+      '2024-01-01',
+      '2024-03-29',
+      '2024-12-25',
+    ])
+    // It shut for the first day of Hurricane Sandy only.
+    assert.equal(session('ICE', '2012-10-29'), 'closed')
+    assert.notEqual(session('ICE', '2012-10-30'), 'closed')
+  })
+
+  test('FOREX trades from Sunday evening with no holidays', ({ assert }) => {
+    assert.deepEqual(holidays('FOREX', 2024), [])
+    assert.deepEqual(
+      getCalendar('FX')
+        .validDays('2024-06-02', '2024-06-08')
+        .map((d) => d.toISODate()),
+      [
+        '2024-06-02', // Sunday is a session
+        '2024-06-03',
+        '2024-06-04',
+        '2024-06-05',
+        '2024-06-06',
+        '2024-06-07',
+      ],
+    )
+  })
+})
