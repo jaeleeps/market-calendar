@@ -1,6 +1,13 @@
 import { test } from '@japa/runner'
 import { DateTime, Duration } from 'luxon'
-import { getCalendar, calendarNames, NYSE, CMEBond, CMEEquity } from '../src'
+import {
+  getCalendar,
+  calendarNames,
+  NYSE,
+  CMEBond,
+  CMEEquity,
+  JPX,
+} from '../src'
 import {
   Interruption,
   MarketCalendar,
@@ -1593,5 +1600,77 @@ test.group('CBOE and IEX calendars', () => {
       iex.validDays('2013-08-20', '2013-08-27').map((d) => d.toISODate()),
       ['2013-08-26', '2013-08-27'],
     )
+  })
+})
+
+test.group('JPX calendar', () => {
+  const jpx = new JPX()
+  const jst = (at: string) => DateTime.fromISO(at, { zone: 'Asia/Tokyo' })
+  const hours = (date: string) => {
+    const [day] = jpx.schedule(date, date)
+    return day
+      ? `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')} break ${day.break_start.toFormat('HH:mm')}-${day.break_end.toFormat('HH:mm')}`
+      : 'closed'
+  }
+
+  test('breaks for lunch', ({ assert }) => {
+    assert.equal(hours('2024-11-06'), '09:00-15:30 break 11:30-12:30')
+  })
+
+  test('moved its close on 2024-11-05', ({ assert }) => {
+    assert.equal(hours('2024-11-01'), '09:00-15:00 break 11:30-12:30')
+    assert.equal(hours('2024-11-05'), '09:00-15:30 break 11:30-12:30')
+  })
+
+  test('is shut for lunch', ({ assert }) => {
+    assert.isTrue(jpx.openAtTime(jst('2024-11-06T10:00')))
+    assert.isFalse(jpx.openAtTime(jst('2024-11-06T11:30'))) // the break begins
+    assert.isFalse(jpx.openAtTime(jst('2024-11-06T12:00')))
+    assert.isTrue(jpx.openAtTime(jst('2024-11-06T12:30'))) //  and ends
+    assert.isTrue(jpx.openAtTime(jst('2024-11-06T15:20')))
+  })
+
+  test('observes the 2024 Japanese holidays', ({ assert }) => {
+    assert.deepEqual(
+      jpx.holidays('2024-01-01', '2024-12-31').map((d) => d.toISODate()),
+      [
+        '2024-01-01',
+        '2024-01-02',
+        '2024-01-03', // New Year
+        '2024-01-08', //                             Coming of Age, 2nd Monday
+        '2024-02-12', //                             National Foundation, observed
+        '2024-02-23', //                             the Emperor's Birthday
+        '2024-03-20', //                             vernal equinox
+        '2024-04-29',
+        '2024-05-03',
+        '2024-05-04',
+        '2024-05-06', // Golden Week
+        '2024-07-15', //                             Marine Day
+        '2024-08-12', //                             Mountain Day, observed
+        '2024-09-16', //                             Respect for the Aged
+        '2024-09-23', //                             autumnal equinox, observed
+        '2024-10-14', //                             Sports Day
+        '2024-11-04', //                             Culture Day, observed
+        '2024-11-23', //                             Labor Thanksgiving
+        '2024-12-31', //                             year end
+      ],
+    )
+  })
+
+  test('follows the equinoxes, which are measured not derived', ({
+    assert,
+  }) => {
+    assert.equal(hours('2024-03-20'), 'closed')
+    assert.equal(hours('2023-03-21'), 'closed') // a day later that year
+    assert.equal(hours('2024-09-23'), 'closed')
+  })
+
+  test('follows the 2021 Olympic shuffle', ({ assert }) => {
+    // Marine, Mountain and Sports Day all moved for the Tokyo games.
+    assert.equal(hours('2021-07-22'), 'closed') // Marine Day
+    assert.equal(hours('2021-07-23'), 'closed') // Sports Day
+    assert.equal(hours('2021-08-09'), 'closed') // Mountain Day, observed
+    // Sports Day was away from its usual October slot that year.
+    assert.notEqual(hours('2021-10-11'), 'closed')
   })
 })
