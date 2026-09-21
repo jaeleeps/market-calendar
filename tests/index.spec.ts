@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime, Duration } from 'luxon'
-import { getCalendar, calendarNames, NYSE } from '../src'
+import { getCalendar, calendarNames, NYSE, CMEBond, CMEEquity } from '../src'
 import {
   Interruption,
   MarketCalendar,
@@ -1462,5 +1462,83 @@ test.group('NYSE special closes and opens', () => {
       cal.lateOpens(era).map((d) => d.date.toISODate()),
       '2001-09-17',
     )
+  })
+})
+
+test.group('CME calendars', () => {
+  const equity = new CMEEquity()
+  const bond = new CMEBond()
+  const ct = (at: string) => DateTime.fromISO(at, { zone: 'America/Chicago' })
+  const row = (cal: CMEEquity | CMEBond, date: string) => {
+    const [day] = cal.schedule(date, date)
+    if (!day) return 'closed'
+    const brk = day.break_start
+      ? ` break=${day.break_start.toFormat('HH:mm')}-${day.break_end.toFormat('HH:mm')}`
+      : ''
+    return `${day.market_open.toFormat('ccc dd HH:mm')} to ${day.market_close.toFormat('HH:mm')}${brk}`
+  }
+
+  test('resolves by every alias', ({ assert }) => {
+    assert.equal(getCalendar('CME_Equity').name, 'CME_Equity')
+    assert.equal(getCalendar('cbot_bond').name, 'CME_Bond')
+    assert.equal(getCalendar('CME_InterestRate').name, 'CME_Bond')
+  })
+
+  test('opens the equity session the evening before', ({ assert }) => {
+    // Monday's trade date opens on the Sunday.
+    assert.equal(
+      row(equity, '2024-06-03'),
+      'Sun 02 17:00 to 16:00 break=15:15-15:30',
+    )
+    assert.equal(equity.openOffset, -1)
+  })
+
+  test('follows the equity session through its three eras', ({ assert }) => {
+    assert.equal(
+      row(equity, '2004-06-02'),
+      'Tue 01 17:00 to 16:00 break=15:15-15:30',
+    )
+    // Between 2005 and 2012 the session was shorter and had no real break,
+    // which upstream models as a zero-length one at the close.
+    assert.equal(
+      row(equity, '2008-06-02'),
+      'Sun 01 15:30 to 15:15 break=15:15-15:15',
+    )
+    assert.equal(
+      row(equity, '2024-06-03'),
+      'Sun 02 17:00 to 16:00 break=15:15-15:30',
+    )
+  })
+
+  test('closes or shortens Good Friday year by year', ({ assert }) => {
+    assert.equal(row(equity, '2019-04-19'), 'closed')
+    assert.equal(row(equity, '2022-04-15'), 'closed')
+    assert.equal(
+      row(equity, '2021-04-02'),
+      'Thu 01 17:00 to 08:15 break=08:15-08:15',
+    )
+    assert.equal(
+      row(equity, '2024-03-29'),
+      'Thu 28 17:00 to 08:15 break=08:15-08:15',
+    )
+  })
+
+  test('closes at noon on the shared half-days', ({ assert }) => {
+    for (const date of ['2024-05-27', '2024-07-03', '2024-11-29']) {
+      assert.match(row(equity, date), /to 12:00/)
+    }
+  })
+
+  test('runs the bond session overnight', ({ assert }) => {
+    assert.equal(row(bond, '2024-06-03'), 'Sun 02 17:00 to 16:00')
+    assert.isTrue(bond.openAtTime(ct('2024-06-02T18:00'))) // Sunday evening
+    assert.isTrue(bond.openAtTime(ct('2024-06-03T02:00'))) // overnight
+    assert.isTrue(bond.openAtTime(ct('2024-06-03T15:00')))
+    assert.isFalse(bond.openAtTime(ct('2024-06-03T16:30'))) // after the close
+  })
+
+  test('lists the bond Good Fridays individually', ({ assert }) => {
+    assert.equal(row(bond, '2024-03-29'), 'closed') //          a closed one
+    assert.equal(row(bond, '2021-04-02'), 'Thu 01 17:00 to 10:00') // a short one
   })
 })

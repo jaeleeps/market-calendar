@@ -8,7 +8,7 @@ export interface HolidayConfig {
   startDate?: DateTime
   endDate?: DateTime
   daysOfWeek?: number[]
-  observance?: (dt: DateTime) => DateTime
+  observance?: (dt: DateTime) => DateTime | null
   offset?: ((dt: DateTime) => DateTime) | ((dt: DateTime) => DateTime)[]
 }
 
@@ -20,7 +20,7 @@ export class Holiday {
   startDate?: DateTime
   endDate?: DateTime
   daysOfWeek?: number[]
-  observance?: (dt: DateTime) => DateTime
+  observance?: (dt: DateTime) => DateTime | null
   offset?: ((dt: DateTime) => DateTime) | ((dt: DateTime) => DateTime)[]
 
   constructor(config: HolidayConfig) {
@@ -59,7 +59,13 @@ export class Holiday {
     for (const d of days) {
       let dt = DateTime.utc(year, this.month, d)
 
-      if (this.observance) dt = this.observance(dt)
+      if (this.observance) {
+        // An observance may decline the year outright, which is how a rule
+        // that holds in most years but not all says so.
+        const observed = this.observance(dt)
+        if (observed === null) continue
+        dt = observed
+      }
       if (this.offset) {
         const offsets = Array.isArray(this.offset) ? this.offset : [this.offset]
         for (const off of offsets) {
