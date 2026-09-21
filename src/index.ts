@@ -15,6 +15,8 @@ export { Holiday, HolidayConfig } from './core/Holiday'
 export { HolidayCalendar } from './core/HolidayCalendar'
 export { NYSE } from './calendars/NYSE'
 export { CMEBond, CMEEquity } from './calendars/CME'
+export { CBOEEquityOptions, CBOEIndexOptions, CFE } from './calendars/CBOE'
+export { IEX } from './calendars/IEX'
 export {
   getCalendar,
   calendarNames,
