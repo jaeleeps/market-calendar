@@ -10,9 +10,10 @@ import {
 } from './types'
 import {
   DisappearingSessionWarning,
+  DroppedMarketTimesWarning,
   MissingSessionWarning,
   OverlappingSessionWarning,
-  emitDateRangeWarning,
+  emitCalendarWarning,
 } from './warnings'
 import { DEFAULT_LABEL_MAP } from './sessionUtils'
 import { Holiday } from '../core/Holiday'
@@ -97,8 +98,8 @@ const MERGED_COLUMNS = ['date', 'market_open', 'market_close']
  * leaves no overlap at all.
  *
  * Only the open and the close survive: a merged break or extended-hours session
- * has no meaning across exchanges, so those columns are dropped and a notice is
- * written to the console.
+ * has no meaning across exchanges, so those columns are dropped and a
+ * DroppedMarketTimesWarning is raised.
  *
  * @param schedules - The schedules to merge
  * @param how - 'outer' for the union of trading days, 'inner' for the overlap
@@ -171,7 +172,7 @@ function mergedDates(
   return [...dates].sort()
 }
 
-/** Tell the caller which market times the merge is about to discard. */
+/** Report which market times the merge is about to discard. */
 function reportDroppedColumns(schedules: MarketSchedule[]): void {
   const dropped = new Set<string>()
   for (const schedule of schedules) {
@@ -181,9 +182,7 @@ function reportDroppedColumns(schedules: MarketSchedule[]): void {
   }
 
   if (dropped.size > 0) {
-    console.warn(
-      `mergeSchedules will drop ${[...dropped].sort().join(', ')} from the result.`,
-    )
+    emitCalendarWarning(new DroppedMarketTimesWarning([...dropped].sort()))
   }
 }
 
@@ -419,10 +418,10 @@ export function dateRange(
   })
 
   if (vanished.length > 0) {
-    emitDateRangeWarning(new DisappearingSessionWarning(vanished))
+    emitCalendarWarning(new DisappearingSessionWarning(vanished))
   }
   if (overlapping.length > 0) {
-    emitDateRangeWarning(new OverlappingSessionWarning(overlapping))
+    emitCalendarWarning(new OverlappingSessionWarning(overlapping))
   }
 
   return dedupe(timestamps)
@@ -460,7 +459,7 @@ function sessionIntervals(
   }
 
   if (skipped.length > 0) {
-    emitDateRangeWarning(new MissingSessionWarning(skipped, [...missing]))
+    emitCalendarWarning(new MissingSessionWarning(skipped, [...missing]))
   }
 
   const intervals: SessionInterval[] = []

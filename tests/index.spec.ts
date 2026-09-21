@@ -9,9 +9,11 @@ import {
   mergeSchedules,
 } from '../src/utils/calendarUtils'
 import {
+  DateRangeWarning,
+  DroppedMarketTimesWarning,
   MissingSessionWarning,
-  filterDateRangeWarnings,
-  resetDateRangeWarnings,
+  filterCalendarWarnings,
+  resetCalendarWarnings,
 } from '../src/utils/warnings'
 import { DateRangeSession } from '../src/utils/types'
 
@@ -338,7 +340,7 @@ test.group('markSession', () => {
 })
 
 test.group('dateRange', (group) => {
-  group.each.teardown(() => resetDateRangeWarnings())
+  group.each.teardown(() => resetCalendarWarnings())
 
   const day = (date: string) => nyse().schedule(date, date)
   const hhmm = (stamps: DateTime[]) => stamps.map((t) => t.toFormat('HH:mm'))
@@ -446,7 +448,7 @@ test.group('dateRange', (group) => {
 
   test('warns when a session vanishes', ({ assert }) => {
     // The July 3rd half-day is 3.5h, shorter than the 4h frequency.
-    filterDateRangeWarnings('error')
+    filterCalendarWarnings('error')
     assert.throws(
       () =>
         dateRange(day('2024-07-03'), '4h', {
@@ -458,7 +460,7 @@ test.group('dateRange', (group) => {
   })
 
   test('warns when a session runs into the next', ({ assert }) => {
-    filterDateRangeWarnings('error')
+    filterCalendarWarnings('error')
     assert.throws(
       () =>
         dateRange(day('2024-07-02'), '6h', {
@@ -472,7 +474,7 @@ test.group('dateRange', (group) => {
   })
 
   test('warns when the schedule lacks a session', ({ assert }) => {
-    filterDateRangeWarnings('error')
+    filterCalendarWarnings('error')
     try {
       dateRange(day('2024-07-02'), '1h', { session: 'break' })
       assert.fail('expected a MissingSessionWarning')
@@ -487,7 +489,7 @@ test.group('dateRange', (group) => {
   })
 
   test('honours the ignore filter', ({ assert }) => {
-    filterDateRangeWarnings('ignore')
+    filterCalendarWarnings('ignore')
     assert.deepEqual(
       dateRange(day('2024-07-02'), '1h', { session: 'break' }),
       [],
@@ -521,7 +523,9 @@ test.group('dateRange', (group) => {
   })
 })
 
-test.group('mergeSchedules', () => {
+test.group('mergeSchedules', (group) => {
+  group.each.teardown(() => resetCalendarWarnings())
+
   const at = (date: string, time: string) =>
     DateTime.fromISO(`${date}T${time}`, { zone: 'UTC' })
 
@@ -590,23 +594,37 @@ test.group('mergeSchedules', () => {
   })
 
   test('drops market times a merge cannot carry', ({ assert }) => {
-    const warnings: string[] = []
-    const original = console.warn
-    console.warn = (msg: string) => warnings.push(msg)
+    filterCalendarWarnings('ignore')
+    const merged = mergeSchedules([nyse().schedule('2024-07-02', '2024-07-02')])
+    assert.deepEqual(Object.keys(merged[0]).sort(), [
+      'date',
+      'market_close',
+      'market_open',
+    ])
+  })
 
+  test('raises a filterable warning for the dropped columns', ({ assert }) => {
+    filterCalendarWarnings('error')
     try {
-      const merged = mergeSchedules([
-        nyse().schedule('2024-07-02', '2024-07-02'),
-      ])
-      assert.deepEqual(Object.keys(merged[0]).sort(), [
-        'date',
-        'market_close',
-        'market_open',
-      ])
-      assert.match(warnings[0], /will drop post, pre/)
-    } finally {
-      console.warn = original
+      mergeSchedules([nyse().schedule('2024-07-02', '2024-07-02')])
+      assert.fail('expected a DroppedMarketTimesWarning')
+    } catch (err) {
+      assert.instanceOf(err, DroppedMarketTimesWarning)
+      assert.deepEqual(
+        [...(err as DroppedMarketTimesWarning).columns],
+        ['post', 'pre'],
+      )
     }
+  })
+
+  test('is not silenced by a date range filter', ({ assert }) => {
+    // The merge warning is not a DateRangeWarning, so that filter must miss it.
+    filterCalendarWarnings('ignore', DateRangeWarning)
+    filterCalendarWarnings('error', DroppedMarketTimesWarning)
+    assert.throws(
+      () => mergeSchedules([nyse().schedule('2024-07-02', '2024-07-02')]),
+      /Merging schedules drops/,
+    )
   })
 
   test('handles empty input and rejects a bad strategy', ({ assert }) => {
