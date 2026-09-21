@@ -77,6 +77,35 @@ export function previousFriday(dt: DateTime): DateTime {
 }
 
 /**
+ * Move a holiday that follows another one to the next free weekday.
+ *
+ * Saturday and Sunday both go to the following Tuesday and Monday to the
+ * Tuesday, because the Monday belongs to the holiday of the day before.
+ *
+ * @param dt DateTime object
+ * @returns Adjusted DateTime
+ */
+export function nextMondayOrTuesday(dt: DateTime): DateTime {
+  if (dt.weekday === Weekday.SATURDAY || dt.weekday === Weekday.SUNDAY) {
+    return dt.plus({ days: 2 })
+  }
+  return dt.weekday === Weekday.MONDAY ? dt.plus({ days: 1 }) : dt
+}
+
+/**
+ * Return an observance a fixed number of days from Easter Sunday.
+ *
+ * Much of Europe hangs its spring holidays off Easter: Maundy Thursday is
+ * three days before, Ascension Day thirty-nine after, Whit Monday fifty.
+ *
+ * @param days Days from Easter Sunday; negative is before
+ * @returns An observance resolving to that day of the date's year
+ */
+export function easterOffset(days: number) {
+  return (dt: DateTime): DateTime => easterSunday(dt.year).plus({ days })
+}
+
+/**
  * Observance that maps any date in a year to that year's Easter Monday.
  *
  * @param dt Any DateTime in the target year
