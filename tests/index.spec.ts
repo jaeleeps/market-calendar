@@ -7,6 +7,7 @@ import {
   CMEBond,
   CMEEquity,
   JPX,
+  LSE,
 } from '../src'
 import {
   Interruption,
@@ -1817,5 +1818,80 @@ test.group('dateRangeHTF', () => {
       '2024-03-01',
     ])
     assert.deepEqual(iso(convertFreq(year(), 'Y')), ['2024-01-02'])
+  })
+})
+
+test.group('LSE calendar', () => {
+  const lse = new LSE()
+  const hours = (date: string) => {
+    const [day] = lse.schedule(date, date)
+    return day
+      ? `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+      : 'closed'
+  }
+  const holidays = (from: string, to: string) =>
+    lse.holidays(from, to).map((d) => d.toISODate())
+
+  test('keeps London hours', ({ assert }) => {
+    assert.equal(hours('2024-06-03'), '08:00-16:30')
+    assert.equal(getCalendar('XLON').name, 'LSE')
+  })
+
+  test('observes the 2024 bank holidays', ({ assert }) => {
+    assert.deepEqual(holidays('2024-01-01', '2024-12-31'), [
+      '2024-01-01',
+      '2024-03-29', // Good Friday
+      '2024-04-01', // Easter Monday
+      '2024-05-06', // Early May
+      '2024-05-27', // Spring
+      '2024-08-26', // Summer
+      '2024-12-25',
+      '2024-12-26',
+    ])
+  })
+
+  test('closes early on Christmas Eve and New Year’s Eve', ({ assert }) => {
+    assert.equal(hours('2024-12-24'), '08:00-12:30')
+    assert.equal(hours('2024-12-31'), '08:00-12:30')
+    assert.equal(hours('2024-12-23'), '08:00-16:30')
+  })
+
+  test('pushes a weekend Christmas into the following week', ({ assert }) => {
+    // Christmas 2021 was a Saturday, so the closures moved to the 27th and 28th.
+    assert.equal(hours('2021-12-27'), 'closed')
+    assert.equal(hours('2021-12-28'), 'closed')
+  })
+
+  test('moves the Spring bank holiday for a royal occasion', ({ assert }) => {
+    // 2002, 2012 and 2022 all moved it; the jubilee dates replace it.
+    assert.deepEqual(holidays('2002-05-01', '2002-06-30'), [
+      '2002-05-06',
+      '2002-06-03',
+      '2002-06-04',
+    ])
+    assert.deepEqual(holidays('2012-05-01', '2012-06-30'), [
+      '2012-05-07',
+      '2012-06-04',
+      '2012-06-05',
+    ])
+    // 2022-05-30 is NOT a holiday: it moved to 2 June for the Platinum
+    // Jubilee. The reference implementation reports it closed.
+    assert.deepEqual(holidays('2022-05-01', '2022-06-30'), [
+      '2022-05-02',
+      '2022-06-02',
+      '2022-06-03',
+    ])
+  })
+
+  test('resumes the Spring bank holiday afterwards', ({ assert }) => {
+    assert.deepEqual(holidays('2023-05-01', '2023-06-30'), [
+      '2023-05-01', //  Early May
+      '2023-05-08', //  coronation of Charles III
+      '2023-05-29', //  Spring, back in its usual place
+    ])
+  })
+
+  test('closes for the state funeral', ({ assert }) => {
+    assert.equal(hours('2022-09-19'), 'closed')
   })
 })
