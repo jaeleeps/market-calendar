@@ -97,6 +97,7 @@ class BreakMarket extends MarketCalendar {
 }
 import { weekdayOffset, easterSunday } from '../src/utils/rules'
 import { Weekday } from '../src/utils/constants'
+import { saturdays } from '../src/holidays/nyse'
 import {
   dateRange,
   markSession,
@@ -301,10 +302,12 @@ test.group('historical weekmask', () => {
   })
 
   test('spans the transition within one range', ({ assert }) => {
-    // Saturday 1952-09-27 is the last Saturday session; 1952-10-04 is not one.
-    const days = iso(nyse().validDays('1952-09-26', '1952-10-04'))
-    assert.include(days, '1952-09-27')
-    assert.notInclude(days, '1952-10-04')
+    const days = iso(nyse().validDays('1952-05-24', '1952-10-04'))
+    assert.include(days, '1952-05-24') //    Saturday trading still running
+    assert.notInclude(days, '1952-10-04') // after it ended
+    // 1952-09-27 is a Saturday before the cutoff but still not a session: it
+    // falls in that summer's shutdown, which is a closure, not the weekmask.
+    assert.notInclude(days, '1952-09-27')
   })
 
   test('still excludes Sundays and modern Saturdays', ({ assert }) => {
@@ -1325,5 +1328,73 @@ test.group('interruptions', () => {
       nyse().schedule('2024-07-02', '2024-07-02', { interruptions: true }),
       nyse().schedule('2024-07-02', '2024-07-02'),
     )
+  })
+})
+
+test.group('NYSE Saturday closures', () => {
+  const cal = nyse()
+  const saturdaySessions = (from: string, to: string) =>
+    cal
+      .validDays(from, to)
+      .filter((d) => d.weekday === Weekday.SATURDAY)
+      .map((d) => d.toISODate())
+
+  test('shuts on summer Saturdays from 1945', ({ assert }) => {
+    // The 1950 shutdown ran 3 June to 30 September.
+    assert.deepEqual(saturdaySessions('1950-06-01', '1950-10-02'), [])
+    assert.deepEqual(saturdaySessions('1950-01-01', '1950-01-31'), [
+      '1950-01-07',
+      '1950-01-14',
+      '1950-01-21',
+      '1950-01-28',
+    ])
+  })
+
+  test('still trades the Saturdays outside the shutdown', ({ assert }) => {
+    assert.include(saturdaySessions('1950-05-01', '1950-05-31'), '1950-05-27')
+    assert.include(saturdaySessions('1950-10-01', '1950-10-31'), '1950-10-07')
+  })
+
+  test('closes the last Saturday session in May 1952', ({ assert }) => {
+    // Saturday trading ended on 1952-09-29, but every Saturday from 31 May
+    // fell inside that year's summer shutdown, so May 24 was the last one.
+    const final = saturdaySessions('1952-01-01', '1952-12-31')
+    assert.equal(final[final.length - 1], '1952-05-24')
+    assert.deepEqual(saturdaySessions('1952-05-31', '1952-05-31'), [])
+  })
+
+  test('observes the adhoc Saturday closings', ({ assert }) => {
+    assert.deepEqual(saturdaySessions('1950-12-23', '1950-12-23'), []) // before Christmas
+    assert.deepEqual(saturdaySessions('1930-04-19', '1930-04-19'), []) // after Good Friday
+    assert.deepEqual(saturdaySessions('1916-12-30', '1916-12-30'), []) // before New Year
+  })
+
+  test('leaves the modern era alone', ({ assert }) => {
+    assert.deepEqual(saturdaySessions('2024-01-01', '2024-12-31'), [])
+    assert.equal(cal.validDays('2024-07-01', '2024-07-31').length, 22)
+  })
+})
+
+test.group('saturdays helper', () => {
+  test('runs weekly and includes both ends', ({ assert }) => {
+    assert.deepEqual(
+      saturdays('1945-07-07', '1945-09-01').map((d) => d.toISODate()),
+      [
+        '1945-07-07',
+        '1945-07-14',
+        '1945-07-21',
+        '1945-07-28',
+        '1945-08-04',
+        '1945-08-11',
+        '1945-08-18',
+        '1945-08-25',
+        '1945-09-01',
+      ],
+    )
+  })
+
+  test('refuses a start that is not a Saturday', ({ assert }) => {
+    // Starting a day out would shift every date in the run.
+    assert.throws(() => saturdays('1945-07-08', '1945-09-01'), /not a Saturday/)
   })
 })

@@ -9,6 +9,7 @@ import { ProtectedDict } from '../core/classRegistry'
 import { Weekday } from '../utils/constants'
 import { Dated } from '../utils/dated'
 import * as us from '../holidays/us'
+import { NYSESaturdayClosings } from '../holidays/nyse'
 
 /**
  * New York Stock Exchange.
@@ -26,11 +27,10 @@ import * as us from '../holidays/us'
  * one-off historical early closes in the reference implementation (weather,
  * funerals, backlog half-days) are not modelled.
  *
- * Known gap: the Saturday closures in the reference implementation's
- * `holidays/nyse.py` are not ported — the summer Saturday shutdowns from 1945
- * to 1952 and roughly a dozen adhoc Saturday closings around holidays. Saturday
- * sessions before 1952-09-29 are therefore over-inclusive; the ones this
- * calendar reports as open were not all open.
+ * Known gap: the special closes in the reference implementation's
+ * `holidays/nyse.py` are not ported. It has nine rule-driven groups spanning
+ * 11:00 to 15:56 and five adhoc ones; this calendar has the 13:00 and 14:00
+ * groups only, so other historical early closes report as full days.
  */
 export class NYSE extends MarketCalendar {
   static override aliases = ['XNYS', 'NYSE', 'stock']
@@ -132,6 +132,7 @@ export class NYSE extends MarketCalendar {
     ...us.HurricaneSandyClosings,
     ...us.September11Closings,
     ...us.USNationalDaysofMourning,
+    ...NYSESaturdayClosings,
   ]
 
   /**
