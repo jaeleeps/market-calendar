@@ -28,12 +28,15 @@ import { HolidayCalendar } from '../core/HolidayCalendar'
  * @param schedule - The market schedule DataFrame
  * @param timestamps - Array of DateTime timestamps
  * @param labelMap - Optional override for label names
+ * @param closed - Which edge of a session contains its own boundary:
+ *   'right' for (start, end], 'left' for [start, end)
  * @returns A mapping from each timestamp to a session label
  */
 export function markSession(
   schedule: MarketSchedule,
   timestamps: DateTime[],
   labelMap: Partial<Record<TradingSessionLabel, string>> = {},
+  closed: IntervalClosed = 'right',
 ): Record<string, string> {
   const sessionLabels = availableSessions(schedule)
   const rows = new Map<string, MarketDaySchedule>()
@@ -53,7 +56,7 @@ export function markSession(
     const local = zone ? ts.setZone(zone) : ts
     const row = rows.get(local.toISODate() ?? '')
     const label = row
-      ? getLabelForTimestamp(local, row, sessionLabels)
+      ? getLabelForTimestamp(local, row, sessionLabels, closed)
       : 'closed'
     result[key] = labelMap[label] ?? DEFAULT_LABEL_MAP[label]
   }
@@ -195,12 +198,14 @@ function reportDroppedColumns(schedules: MarketSchedule[]): void {
  * @param ts - The DateTime timestamp
  * @param times - The session times for a day
  * @param labels - List of possible session labels
+ * @param closed - Which edge of a session contains its own boundary
  * @returns The matching label, or 'closed' when no session contains it
  */
 function getLabelForTimestamp(
   ts: DateTime,
   times: Record<string, DateTime>,
   labels: TradingSessionLabel[],
+  closed: IntervalClosed,
 ): TradingSessionLabel {
   const checks: Partial<Record<TradingSessionLabel, [DateTime, DateTime]>> = {
     pre: [times['pre'], times['market_open']],
@@ -216,9 +221,12 @@ function getLabelForTimestamp(
     const range = checks[label]
     if (!range) continue
     const [start, end] = range
-    if (start && end && ts >= start && ts <= end) {
-      return label
-    }
+    if (!start || !end) continue
+
+    // Adjacent sessions share a boundary, so exactly one of them may claim it.
+    const within =
+      closed === 'right' ? ts > start && ts <= end : ts >= start && ts < end
+    if (within) return label
   }
   return 'closed'
 }
