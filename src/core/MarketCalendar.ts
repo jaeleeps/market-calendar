@@ -24,6 +24,40 @@ export type MarketTimeKey =
 /** The two market times every calendar must define. */
 const REQUIRED_MARKET_TIMES: MarketTimeKey[] = ['market_open', 'market_close']
 
+/** Market times in the order they occur during a trading day. */
+const MARKET_TIME_ORDER: MarketTimeKey[] = [
+  'pre',
+  'market_open',
+  'break_start',
+  'break_end',
+  'market_close',
+  'post',
+]
+
+/** Whether reaching each market time opens the market or closes it. */
+const OPENS_MARKET: Record<MarketTimeKey, boolean> = {
+  pre: true,
+  market_open: true,
+  break_start: false,
+  break_end: true,
+  market_close: false,
+  post: false,
+}
+
+/** Options for asking whether the market is open. */
+export interface OpenAtTimeOptions {
+  /**
+   * Count the instant the market shuts as open, for callers labelling bars by
+   * their closing edge. Defaults to false.
+   */
+  includeClose?: boolean
+  /**
+   * Ignore the pre and post sessions and ask only about regular hours.
+   * Defaults to false.
+   */
+  onlyRTH?: boolean
+}
+
 /** A market time given either as a single time or as a dated history. */
 export type MarketTimeSpec = TimeOfDay | Dated<TimeOfDay>[]
 
@@ -237,24 +271,115 @@ export abstract class MarketCalendar {
   }
 
   /**
-   * Whether the market is in regular trading hours at a given instant.
+   * Whether the market is trading at a given instant.
    *
-   * A configured lunch break counts as closed; the open and close themselves
-   * count as open. Extended-hours columns such as `pre` and `post` are not
-   * considered — read them off `schedule()` when you need them.
+   * Each market time either opens the market or closes it, and an instant is
+   * open when the most recent one before it was an opening. A lunch break
+   * therefore reads as closed without being a special case. Where a schedule
+   * has a post session the regular close no longer ends trading, so an
+   * afternoon instant is still open; `onlyRTH` asks the narrower question.
+   *
+   * An instant on a day the market never opens is closed rather than an error.
    *
    * @param dt The instant to test
-   * @returns true when `dt` falls inside that day's trading hours
+   * @param options Whether to count the close, and whether to ignore
+   *   extended hours
+   * @returns true when the market is trading at `dt`
    */
-  openAtTime(dt: DateTime): boolean {
+  openAtTime(dt: DateTime, options: OpenAtTimeOptions = {}): boolean {
+    const { includeClose = false, onlyRTH = false } = options
     const local = dt.setZone(this.tz)
     const [day] = this.schedule(local, local)
     if (!day) return false
 
-    if (local < day.market_open || local > day.market_close) return false
+    const events = MARKET_TIME_ORDER.filter(
+      (key) => day[key] && !(onlyRTH && (key === 'pre' || key === 'post')),
+    )
+      .map((key) => ({ key, at: day[key] }))
+      .sort((a, b) => a.at.toMillis() - b.at.toMillis())
 
-    const { break_start: breakStart, break_end: breakEnd } = day
-    return !(breakStart && breakEnd && local > breakStart && local < breakEnd)
+    // A close followed by a post session hands trading over rather than
+    // ending it, so it reads as an opening.
+    const opens = events.map((event, index) =>
+      event.key === 'market_close' && events[index + 1]?.key === 'post'
+        ? true
+        : OPENS_MARKET[event.key],
+    )
+
+    let last = -1
+    for (const [index, event] of events.entries()) {
+      if (event.at > local) break
+      last = index
+    }
+
+    if (last < 0) return false
+    if (opens[last]) return true
+    return includeClose && +events[last].at === +local
+  }
+
+  /**
+   * Whether the market is trading right now.
+   *
+   * @param options Whether to count the close, and whether to ignore
+   *   extended hours
+   * @returns true when the market is trading at the current instant
+   */
+  isOpenNow(options: OpenAtTimeOptions = {}): boolean {
+    return this.openAtTime(DateTime.now(), options)
+  }
+
+  /**
+   * The days of a schedule whose market time differs from the regular one.
+   *
+   * @param schedule - Days to inspect
+   * @param key - The market time column to compare
+   * @param compare - How the observed time must relate to the regular one;
+   *   defaults to any difference
+   * @returns The matching days, in schedule order
+   */
+  isDifferent(
+    schedule: MarketSchedule,
+    key: MarketTimeKey,
+    compare: (observed: DateTime, regular: DateTime) => boolean = (
+      observed,
+      regular,
+    ) => +observed !== +regular,
+  ): MarketSchedule {
+    return schedule.filter((day) => {
+      const observed = day[key]
+      const time = this.timeOn(key, day.date)
+      return observed && time
+        ? compare(observed, this.at(day.date, time))
+        : false
+    })
+  }
+
+  /**
+   * The days of a schedule that close earlier than usual.
+   *
+   * @param schedule - Days to inspect
+   * @returns The early closes, in schedule order
+   */
+  earlyCloses(schedule: MarketSchedule): MarketSchedule {
+    return this.isDifferent(
+      schedule,
+      'market_close',
+      (observed, regular) => observed < regular,
+    )
+  }
+
+  /**
+   * The days of a schedule that open later than usual.
+   *
+   * @param schedule - Days to inspect
+   * @returns The late opens, in schedule order
+   */
+  lateOpens(schedule: MarketSchedule): MarketSchedule {
+    return this.isDifferent(
+      schedule,
+      'market_open',
+      (observed, regular) => observed > regular,
+    )
   }
 
   /**

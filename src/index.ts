@@ -2,6 +2,7 @@ export {
   MarketCalendar,
   MarketTimeKey,
   MarketTimeSpec,
+  OpenAtTimeOptions,
   TimeOfDay,
   SpecialTime,
   DateLike,

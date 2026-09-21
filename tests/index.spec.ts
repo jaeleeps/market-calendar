@@ -1,6 +1,26 @@
 import { test } from '@japa/runner'
 import { DateTime, Duration } from 'luxon'
 import { getCalendar, calendarNames, NYSE } from '../src'
+import {
+  MarketCalendar,
+  OpenAtTimeOptions,
+  TimeOfDay,
+} from '../src/core/MarketCalendar'
+import { ProtectedDict } from '../src/core/classRegistry'
+import { Dated } from '../src/utils/dated'
+
+/** A calendar with a lunch break, which no ported exchange has yet. */
+class BreakMarket extends MarketCalendar {
+  readonly name = 'BREAK'
+  readonly tz = 'America/New_York'
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay>[]>([
+    ['market_open', [{ from: null, value: [9, 0] }]],
+    ['break_start', [{ from: null, value: [11, 30] }]],
+    ['break_end', [{ from: null, value: [12, 30] }]],
+    ['market_close', [{ from: null, value: [15, 0] }]],
+  ])
+}
 import { weekdayOffset, easterSunday } from '../src/utils/rules'
 import { Weekday } from '../src/utils/constants'
 import {
@@ -220,21 +240,99 @@ test.group('historical weekmask', () => {
 })
 
 test.group('openAtTime', () => {
-  test('is open during regular hours only', ({ assert }) => {
-    const cal = nyse()
-    assert.isTrue(cal.openAtTime(et('2024-07-02T10:00')))
-    assert.isTrue(cal.openAtTime(et('2024-07-02T09:30')))
-    assert.isTrue(cal.openAtTime(et('2024-07-02T16:00')))
-    assert.isFalse(cal.openAtTime(et('2024-07-02T09:29')))
-    assert.isFalse(cal.openAtTime(et('2024-07-02T16:01')))
+  const cal = nyse()
+  const open = (at: string, options: OpenAtTimeOptions = {}) =>
+    cal.openAtTime(et(at), options)
+
+  test('counts the extended sessions by default', ({ assert }) => {
+    assert.isFalse(open('2024-07-02T03:59')) // before the pre session
+    assert.isTrue(open('2024-07-02T04:00')) //  pre opens the market
+    assert.isTrue(open('2024-07-02T09:29'))
+    assert.isTrue(open('2024-07-02T16:00')) //  post takes over from the close
+    assert.isTrue(open('2024-07-02T18:00'))
+    assert.isFalse(open('2024-07-02T20:00')) // post ends the day
+    assert.isFalse(open('2024-07-02T20:01'))
   })
 
-  test('is closed on holidays and early-close afternoons', ({ assert }) => {
-    const cal = nyse()
-    assert.isFalse(cal.openAtTime(et('2024-07-04T10:00')))
-    assert.isFalse(cal.openAtTime(et('2024-07-06T10:00'))) // Saturday
-    assert.isTrue(cal.openAtTime(et('2024-07-03T12:59')))
-    assert.isFalse(cal.openAtTime(et('2024-07-03T13:01')))
+  test('onlyRTH asks about regular hours alone', ({ assert }) => {
+    const rth = { onlyRTH: true }
+    assert.isFalse(open('2024-07-02T09:29', rth))
+    assert.isTrue(open('2024-07-02T09:30', rth))
+    assert.isTrue(open('2024-07-02T15:59', rth))
+    assert.isFalse(open('2024-07-02T16:00', rth)) // the close is not open
+    assert.isFalse(open('2024-07-02T18:00', rth))
+  })
+
+  test('includeClose counts the closing instant', ({ assert }) => {
+    assert.isTrue(open('2024-07-02T20:00', { includeClose: true }))
+    assert.isTrue(
+      open('2024-07-02T16:00', { onlyRTH: true, includeClose: true }),
+    )
+    assert.isFalse(
+      open('2024-07-02T16:01', { onlyRTH: true, includeClose: true }),
+    )
+  })
+
+  test('is closed on holidays and weekends', ({ assert }) => {
+    assert.isFalse(open('2024-07-04T10:00')) // Independence Day
+    assert.isFalse(open('2024-07-06T10:00')) // Saturday
+  })
+
+  test('follows an early close', ({ assert }) => {
+    assert.isTrue(open('2024-07-03T12:59', { onlyRTH: true }))
+    assert.isFalse(open('2024-07-03T13:01', { onlyRTH: true }))
+    assert.isTrue(open('2024-07-03T15:00')) // the post session runs to 17:00
+    assert.isFalse(open('2024-07-03T17:00'))
+  })
+
+  test('reads a lunch break as closed', ({ assert }) => {
+    const lunch = new BreakMarket()
+    assert.isTrue(lunch.openAtTime(et('2024-07-02T11:29')))
+    assert.isFalse(lunch.openAtTime(et('2024-07-02T11:30'))) // break starts
+    assert.isFalse(lunch.openAtTime(et('2024-07-02T12:00')))
+    assert.isTrue(lunch.openAtTime(et('2024-07-02T12:30'))) // and ends
+    assert.isTrue(lunch.openAtTime(et('2024-07-02T14:00')))
+  })
+
+  test('isOpenNow agrees with openAtTime now', ({ assert }) => {
+    assert.equal(cal.isOpenNow(), cal.openAtTime(DateTime.now()))
+    assert.equal(
+      cal.isOpenNow({ onlyRTH: true }),
+      cal.openAtTime(DateTime.now(), { onlyRTH: true }),
+    )
+  })
+})
+
+test.group('schedule differences', () => {
+  const cal = nyse()
+  const july = () => cal.schedule('2024-07-01', '2024-07-31')
+  const dates = (schedule: ReturnType<typeof july>) =>
+    schedule.map((d) => d.date.toISODate())
+
+  test('finds the early closes', ({ assert }) => {
+    // 3 July is the only NYSE half-day in the month.
+    assert.deepEqual(dates(cal.earlyCloses(july())), ['2024-07-03'])
+  })
+
+  test('finds no late opens where there are none', ({ assert }) => {
+    assert.deepEqual(cal.lateOpens(july()), [])
+  })
+
+  test('reports any difference by default', ({ assert }) => {
+    assert.deepEqual(dates(cal.isDifferent(july(), 'market_close')), [
+      '2024-07-03',
+    ])
+    assert.deepEqual(dates(cal.isDifferent(july(), 'post')), ['2024-07-03'])
+    assert.deepEqual(cal.isDifferent(july(), 'market_open'), [])
+  })
+
+  test('takes a custom comparison', ({ assert }) => {
+    const later = cal.isDifferent(
+      july(),
+      'market_close',
+      (observed, regular) => observed > regular,
+    )
+    assert.deepEqual(later, [])
   })
 })
 
@@ -283,11 +381,12 @@ test.group('extended hours', () => {
     })
   })
 
-  test('openAtTime still means regular hours only', ({ assert }) => {
+  test('openAtTime counts the extended sessions', ({ assert }) => {
     const cal = nyse()
-    assert.isFalse(cal.openAtTime(et('2024-07-02T05:00'))) // pre-market
+    assert.isTrue(cal.openAtTime(et('2024-07-02T05:00'))) // pre-market
     assert.isTrue(cal.openAtTime(et('2024-07-02T10:00')))
-    assert.isFalse(cal.openAtTime(et('2024-07-02T18:00'))) // post-market
+    assert.isTrue(cal.openAtTime(et('2024-07-02T18:00'))) // post-market
+    assert.isFalse(cal.openAtTime(et('2024-07-02T05:00'), { onlyRTH: true }))
   })
 })
 
