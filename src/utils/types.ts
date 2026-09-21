@@ -57,3 +57,6 @@ export type IntervalClosed = 'left' | 'right' | 'both'
 
 /** A bar size: seconds, a Luxon Duration, or a string such as '15min'. */
 export type Frequency = number | Duration | string
+
+/** A timestamp given as an ISO string, POSIX seconds, or a DateTime. */
+export type TimestampLike = string | number | DateTime
