@@ -9,6 +9,42 @@ import {
 import { ProtectedDict } from '../src/core/classRegistry'
 import { Dated } from '../src/utils/dated'
 
+/** A calendar whose session opens the evening before, as CME's do. */
+class OvernightMarket extends MarketCalendar {
+  readonly name = 'OVERNIGHT'
+  readonly tz = 'America/Chicago'
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([
+    ['market_open', [{ from: null, value: [17, 0, -1] }]],
+    ['market_close', [{ from: null, value: [16, 0] }]],
+  ])
+}
+
+/** A calendar that dropped its lunch break at the start of 2020. */
+class RetiredBreakMarket extends MarketCalendar {
+  readonly name = 'RETIRED'
+  readonly tz = 'UTC'
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([
+    ['market_open', [{ from: null, value: [9, 0] }]],
+    [
+      'break_start',
+      [
+        { from: null, value: [12, 0] },
+        { from: '2020-01-01', value: null },
+      ],
+    ],
+    [
+      'break_end',
+      [
+        { from: null, value: [13, 0] },
+        { from: '2020-01-01', value: null },
+      ],
+    ],
+    ['market_close', [{ from: null, value: [17, 0] }]],
+  ])
+}
+
 /** A calendar with a lunch break, which no ported exchange has yet. */
 class BreakMarket extends MarketCalendar {
   readonly name = 'BREAK'
@@ -1001,5 +1037,84 @@ test.group('dateRange closed sessions', () => {
       all.slice(1).map((t, i) => t.diff(all[i], 'hours').hours),
     )
     assert.deepEqual([...gaps], [1])
+  })
+})
+
+test.group('day offsets', () => {
+  const cal = new OvernightMarket()
+  const ct = (at: string) => DateTime.fromISO(at, { zone: 'America/Chicago' })
+
+  test('places the open on the previous calendar day', ({ assert }) => {
+    const [tue, wed] = cal.schedule('2024-07-02', '2024-07-03')
+    assert.equal(tue.market_open.toFormat('ccc dd HH:mm'), 'Mon 01 17:00')
+    assert.equal(tue.market_close.toFormat('ccc dd HH:mm'), 'Tue 02 16:00')
+    assert.equal(wed.market_open.toFormat('ccc dd HH:mm'), 'Tue 02 17:00')
+  })
+
+  test('reports the offsets', ({ assert }) => {
+    assert.equal(cal.openOffset, -1)
+    assert.equal(cal.closeOffset, 0)
+    assert.equal(nyse().openOffset, 0)
+  })
+
+  test('is open across the evening boundary', ({ assert }) => {
+    assert.isFalse(cal.openAtTime(ct('2024-07-01T16:30'))) // after Monday's close
+    assert.isTrue(cal.openAtTime(ct('2024-07-01T17:00'))) //  Tuesday's session opens
+    assert.isTrue(cal.openAtTime(ct('2024-07-02T03:00'))) //  overnight
+    assert.isTrue(cal.openAtTime(ct('2024-07-02T15:59')))
+    assert.isFalse(cal.openAtTime(ct('2024-07-02T16:30')))
+  })
+
+  test('opens on a Sunday evening for the Monday trade date', ({ assert }) => {
+    // The weekmask governs the trade date, not the day the session opens on,
+    // so Sunday carries Monday's open even though Sunday is not a session.
+    assert.isFalse(cal.openAtTime(ct('2024-07-06T12:00'))) // Saturday
+    assert.isFalse(cal.openAtTime(ct('2024-07-07T12:00'))) // Sunday, still shut
+    assert.isTrue(cal.openAtTime(ct('2024-07-07T17:30'))) //  Monday's session
+    assert.deepEqual(
+      cal.validDays('2024-07-06', '2024-07-08').map((d) => d.toISODate()),
+      ['2024-07-08'],
+    )
+  })
+})
+
+test.group('discontinued market times', () => {
+  const cal = new RetiredBreakMarket()
+  const columns = (date: string) =>
+    Object.keys(cal.schedule(date, date)[0]).sort()
+
+  test('publishes the column until it is dropped', ({ assert }) => {
+    assert.deepEqual(columns('2019-06-03'), [
+      'break_end',
+      'break_start',
+      'date',
+      'market_close',
+      'market_open',
+    ])
+    assert.deepEqual(columns('2021-06-03'), [
+      'date',
+      'market_close',
+      'market_open',
+    ])
+  })
+
+  test('reports which times are discontinued', ({ assert }) => {
+    assert.isTrue(cal.isDiscontinued('break_start'))
+    assert.isTrue(cal.isDiscontinued('break_end'))
+    assert.isFalse(cal.isDiscontinued('market_open'))
+    assert.isTrue(cal.hasDiscontinued)
+    assert.isFalse(nyse().hasDiscontinued)
+  })
+
+  test('has no current time for a discontinued column', ({ assert }) => {
+    assert.isUndefined(cal.getTime('break_start'))
+    assert.deepEqual(cal.getTimeOn('break_start', '2019-06-03'), [12, 0])
+  })
+
+  test('stops treating the retired break as closed', ({ assert }) => {
+    const at = (date: string, time: string) =>
+      DateTime.fromISO(`${date}T${time}`, { zone: 'UTC' })
+    assert.isFalse(cal.openAtTime(at('2019-06-03', '12:30')))
+    assert.isTrue(cal.openAtTime(at('2021-06-03', '12:30')))
   })
 })

@@ -6,8 +6,14 @@ import { eachDay } from '../utils/days'
 import { MarketDaySchedule, MarketSchedule } from '../utils/types'
 import { Dated, latestValue, valueOn } from '../utils/dated'
 
-/** A wall-clock time in the exchange's timezone, as [hour, minute]. */
-export type TimeOfDay = [hour: number, minute: number]
+/**
+ * A wall-clock time in the exchange's timezone.
+ *
+ * The optional third element shifts the time off the session date, which is
+ * how a session that opens the evening before its trade date is expressed:
+ * `[17, 0, -1]` is 17:00 on the previous calendar day.
+ */
+export type TimeOfDay = [hour: number, minute: number, dayOffset?: number]
 
 /**
  * Column names of the market times a calendar can publish. `market_open` and
@@ -44,6 +50,12 @@ const OPENS_MARKET: Record<MarketTimeKey, boolean> = {
   post: false,
 }
 
+/** An instant at which the market opens or closes. */
+interface MarketEvent {
+  at: DateTime
+  opens: boolean
+}
+
 /** Options for asking whether the market is open. */
 export interface OpenAtTimeOptions {
   /**
@@ -58,14 +70,19 @@ export interface OpenAtTimeOptions {
   onlyRTH?: boolean
 }
 
-/** A market time given either as a single time or as a dated history. */
-export type MarketTimeSpec = TimeOfDay | Dated<TimeOfDay>[]
+/**
+ * A market time given either as a single time or as a dated history.
+ *
+ * An entry whose value is null discontinues the market time from that date:
+ * the column stops appearing in the schedule.
+ */
+export type MarketTimeSpec = TimeOfDay | Dated<TimeOfDay | null>[]
 
 /** Accept a bare time as a history that has always been in effect. */
-function toHistory(time: MarketTimeSpec): Dated<TimeOfDay>[] {
+function toHistory(time: MarketTimeSpec): Dated<TimeOfDay | null>[] {
   return Array.isArray(time) && typeof time[0] === 'number'
     ? [{ from: null, value: time as TimeOfDay }]
-    : (time as Dated<TimeOfDay>[])
+    : (time as Dated<TimeOfDay | null>[])
 }
 
 /**
@@ -105,7 +122,7 @@ export abstract class MarketCalendar {
    * Regular market times, keyed by column name. Each entry is the history of
    * that time, so an exchange that moved its open records both.
    */
-  regularMarketTimes = new ProtectedDict<Dated<TimeOfDay>[]>([
+  regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([
     ['market_open', [{ from: null, value: [9, 30] }]],
     ['market_close', [{ from: null, value: [16, 0] }]],
   ])
@@ -184,7 +201,35 @@ export abstract class MarketCalendar {
    */
   getTime(key: MarketTimeKey): TimeOfDay | undefined {
     const history = this.regularMarketTimes.get(key)
-    return history ? latestValue(history) : undefined
+    return (history ? latestValue(history) : undefined) ?? undefined
+  }
+
+  /**
+   * Whether a market time the calendar once had has since been discontinued.
+   *
+   * @param key The market time column
+   * @returns true when the column existed and no longer does
+   */
+  isDiscontinued(key: MarketTimeKey): boolean {
+    const history = this.regularMarketTimes.get(key)
+    return history !== undefined && latestValue(history) === null
+  }
+
+  /** Whether any market time has been discontinued. */
+  get hasDiscontinued(): boolean {
+    return [...this.regularMarketTimes.keys()].some((key) =>
+      this.isDiscontinued(key as MarketTimeKey),
+    )
+  }
+
+  /** Days the open sits away from the session date; negative is the day before. */
+  get openOffset(): number {
+    return this.getTime('market_open')?.[2] ?? 0
+  }
+
+  /** Days the close sits away from the session date. */
+  get closeOffset(): number {
+    return this.getTime('market_close')?.[2] ?? 0
   }
 
   /**
@@ -289,32 +334,54 @@ export abstract class MarketCalendar {
   openAtTime(dt: DateTime, options: OpenAtTimeOptions = {}): boolean {
     const { includeClose = false, onlyRTH = false } = options
     const local = dt.setZone(this.tz)
-    const [day] = this.schedule(local, local)
-    if (!day) return false
 
-    const events = MARKET_TIME_ORDER.filter(
+    // A session can open the evening before its own trade date, so the
+    // neighbouring days are searched as well as this one.
+    const window = this.schedule(
+      local.minus({ days: 1 }),
+      local.plus({ days: 1 }),
+    )
+    const events = window
+      .flatMap((day) => this.marketEvents(day, onlyRTH))
+      .sort((a, b) => a.at.toMillis() - b.at.toMillis())
+
+    let last: MarketEvent | undefined
+    for (const event of events) {
+      if (event.at > local) break
+      last = event
+    }
+
+    if (!last) return false
+    if (last.opens) return true
+    return includeClose && +last.at === +local
+  }
+
+  /**
+   * The opening and closing events of one scheduled day, in time order.
+   *
+   * @param day A row of a schedule
+   * @param onlyRTH Leave out the extended-hours sessions
+   * @returns The day's events, each saying whether it opens the market
+   */
+  private marketEvents(
+    day: MarketDaySchedule,
+    onlyRTH: boolean,
+  ): MarketEvent[] {
+    const times = MARKET_TIME_ORDER.filter(
       (key) => day[key] && !(onlyRTH && (key === 'pre' || key === 'post')),
     )
       .map((key) => ({ key, at: day[key] }))
       .sort((a, b) => a.at.toMillis() - b.at.toMillis())
 
-    // A close followed by a post session hands trading over rather than
-    // ending it, so it reads as an opening.
-    const opens = events.map((event, index) =>
-      event.key === 'market_close' && events[index + 1]?.key === 'post'
-        ? true
-        : OPENS_MARKET[event.key],
-    )
-
-    let last = -1
-    for (const [index, event] of events.entries()) {
-      if (event.at > local) break
-      last = index
-    }
-
-    if (last < 0) return false
-    if (opens[last]) return true
-    return includeClose && +events[last].at === +local
+    return times.map((event, index) => ({
+      at: event.at,
+      // A close followed by a post session hands trading over rather than
+      // ending it, so it reads as an opening.
+      opens:
+        event.key === 'market_close' && times[index + 1]?.key === 'post'
+          ? true
+          : OPENS_MARKET[event.key],
+    }))
   }
 
   /**
@@ -394,7 +461,10 @@ export abstract class MarketCalendar {
    */
   protected timeOn(key: MarketTimeKey, date: DateTime): TimeOfDay | undefined {
     const history = this.regularMarketTimes.get(key)
-    return history ? valueOn(history, date.toISODate()!) : undefined
+    // A discontinued market time resolves to nothing, so its column is absent.
+    return (
+      (history ? valueOn(history, date.toISODate()!) : undefined) ?? undefined
+    )
   }
 
   /**
@@ -411,9 +481,10 @@ export abstract class MarketCalendar {
     return dt.startOf('day')
   }
 
-  /** Apply a wall-clock time to a session date. */
-  private at(date: DateTime, [hour, minute]: TimeOfDay): DateTime {
-    return date.set({ hour, minute, second: 0, millisecond: 0 })
+  /** Apply a wall-clock time to a session date, honouring its day offset. */
+  private at(date: DateTime, [hour, minute, dayOffset]: TimeOfDay): DateTime {
+    const at = date.set({ hour, minute, second: 0, millisecond: 0 })
+    return dayOffset ? at.plus({ days: dayOffset }) : at
   }
 
   /** ISO dates of every full-day closure in the range. */
