@@ -55,6 +55,38 @@ export function weekdayOffset(weekday: Weekday, n = 1) {
 }
 
 /**
+ * Move a weekend holiday forward to the Monday.
+ * @param dt DateTime object
+ * @returns Adjusted DateTime
+ */
+export function weekendToMonday(dt: DateTime): DateTime {
+  if (dt.weekday === Weekday.SATURDAY) return dt.plus({ days: 2 })
+  if (dt.weekday === Weekday.SUNDAY) return dt.plus({ days: 1 })
+  return dt
+}
+
+/**
+ * Move a weekend holiday back to the Friday before.
+ * @param dt DateTime object
+ * @returns Adjusted DateTime
+ */
+export function previousFriday(dt: DateTime): DateTime {
+  if (dt.weekday === Weekday.SATURDAY) return dt.minus({ days: 1 })
+  if (dt.weekday === Weekday.SUNDAY) return dt.minus({ days: 2 })
+  return dt
+}
+
+/**
+ * Observance that maps any date in a year to that year's Easter Monday.
+ *
+ * @param dt Any DateTime in the target year
+ * @returns Easter Monday
+ */
+export function easterMondayObservance(dt: DateTime): DateTime {
+  return easterSunday(dt.year).plus({ days: 1 })
+}
+
+/**
  * Offset that adds 1 day
  * @param dt DateTime object
  * @returns DateTime + 1 day
