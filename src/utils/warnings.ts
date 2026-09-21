@@ -1,3 +1,5 @@
+import { DateTime } from 'luxon'
+
 /**
  * Base class for every warning the calendar utilities raise.
  */
@@ -167,20 +169,33 @@ export class MissingSessionWarning extends DateRangeWarning {
 }
 
 /**
- * Warning thrown when `dateRange` is called with a start/end date or period count
- * that exceeds the bounds of the available schedule.
- *
- * This warning may be thrown twice if both start and end dates are insufficient.
- *
- * If called with a number of periods, the start/end dates are estimated (usually overestimated)
- * to avoid repeated warning spam.
+ * Warning raised when the schedule cannot cover what was asked for: a start
+ * before it begins, an end after it finishes, or more periods than it yields.
  */
 export class InsufficientScheduleWarning extends DateRangeWarning {
-  constructor(message?: string) {
+  /** True when the schedule falls short at its start, false at its end. */
+  readonly atStart: boolean
+
+  /** The bound that was asked for, or the number of periods. */
+  readonly requested: DateTime | number
+
+  /** The bound the schedule reaches, or the number of periods it yields. */
+  readonly available: DateTime | number
+
+  constructor(
+    atStart: boolean,
+    requested: DateTime | number,
+    available: DateTime | number,
+  ) {
     super(
-      message ??
-        'Requested date range exceeds bounds of available schedule. Some timestamps may be missing.',
+      typeof requested === 'number' || typeof available === 'number'
+        ? `Requested ${requested} periods but the schedule yields ${String(available)}.`
+        : `Schedule ${atStart ? 'begins' : 'ends'} at ${available.toISO()}, ` +
+            `but ${atStart ? 'a start' : 'an end'} of ${requested.toISO()} was requested.`,
     )
     this.name = 'InsufficientScheduleWarning'
+    this.atStart = atStart
+    this.requested = requested
+    this.available = available
   }
 }

@@ -6,11 +6,13 @@ import {
   MarketDaySchedule,
   MarketSchedule,
   MergeStrategy,
+  TimestampLike,
   TradingSessionLabel,
 } from './types'
 import {
   DisappearingSessionWarning,
   DroppedMarketTimesWarning,
+  InsufficientScheduleWarning,
   MissingSessionWarning,
   OverlappingSessionWarning,
   emitCalendarWarning,
@@ -321,6 +323,15 @@ export interface DateRangeOptions {
   session?: DateRangeSession | DateRangeSession[]
   /** Merge sessions that meet end-to-start. Defaults to true. */
   mergeAdjacent?: boolean
+  /** Earliest timestamp to return. Defaults to where the schedule starts. */
+  start?: TimestampLike
+  /** Latest timestamp to return. Defaults to where the schedule ends. */
+  end?: TimestampLike
+  /**
+   * How many timestamps to return: the first `periods` from `start`, or the
+   * last `periods` up to `end`. Ignored when both bounds are given.
+   */
+  periods?: number
 }
 
 /** Column pairs that bound each session, in the order they occur in a day. */
@@ -356,6 +367,10 @@ interface SessionInterval {
  * Returns one timestamp per bar for the requested sessions. Intervals shorter
  * than the frequency, and timestamps that run past the end of their session,
  * are reported through the DateRange warnings; see `filterDateRangeWarnings`.
+ *
+ * `start`, `end` and `periods` trim the result; they never shift the grid, so
+ * a start between two bars returns the following bar rather than realigning to
+ * the start itself.
  *
  * Only frequencies of a day or less are supported.
  *
@@ -424,7 +439,80 @@ export function dateRange(
     emitCalendarWarning(new OverlappingSessionWarning(overlapping))
   }
 
-  return dedupe(timestamps)
+  return limitRange(dedupe(timestamps), options, schedule)
+}
+
+/**
+ * Trim the generated index to the requested bounds and period count.
+ *
+ * The bounds select from the grid rather than moving it, so a start that falls
+ * between two bars yields the following bar. A schedule that cannot reach a
+ * bound, or yield the requested number of periods, is reported.
+ */
+function limitRange(
+  timestamps: DateTime[],
+  { start, end, periods }: DateRangeOptions,
+  schedule: MarketSchedule,
+): DateTime[] {
+  if (start === undefined && end === undefined && periods === undefined) {
+    return timestamps
+  }
+  if (timestamps.length === 0) return timestamps
+
+  const zone = schedule[0].market_open.zoneName ?? 'UTC'
+  const from = start === undefined ? undefined : toTimestamp(start, zone)
+  const to = end === undefined ? undefined : toTimestamp(end, zone)
+
+  if (from && to && from > to) {
+    throw new Error(`start ${from.toISO()} is after end ${to.toISO()}`)
+  }
+
+  const first = timestamps[0]
+  const last = timestamps[timestamps.length - 1]
+  if (from && from < first) {
+    emitCalendarWarning(new InsufficientScheduleWarning(true, from, first))
+  }
+  if (to && to > last) {
+    emitCalendarWarning(new InsufficientScheduleWarning(false, to, last))
+  }
+
+  let result = timestamps
+  if (from) result = result.filter((ts) => ts >= from)
+  if (to) result = result.filter((ts) => ts <= to)
+
+  // A period count only decides which end to take from; with both bounds
+  // given the range is already fully determined.
+  if (periods === undefined || (from && to)) return result
+  if (!Number.isInteger(periods) || periods < 0) {
+    throw new Error(`periods must be a non-negative integer, got ${periods}`)
+  }
+  if (periods === 0) return []
+
+  // Counting back from an end runs out at the start of the schedule.
+  const backwards = to !== undefined && from === undefined
+  if (result.length < periods) {
+    emitCalendarWarning(
+      new InsufficientScheduleWarning(backwards, periods, result.length),
+    )
+  }
+
+  return backwards ? result.slice(-periods) : result.slice(0, periods)
+}
+
+/**
+ * Read a bound as a timestamp. A string without an offset is read in the
+ * schedule's own timezone, and a number as POSIX seconds.
+ */
+function toTimestamp(value: TimestampLike, zone: string): DateTime {
+  const dt =
+    typeof value === 'number'
+      ? DateTime.fromSeconds(value, { zone })
+      : typeof value === 'string'
+        ? DateTime.fromISO(value, { zone })
+        : value
+
+  if (!dt.isValid) throw new Error(`Invalid timestamp: ${String(value)}`)
+  return dt
 }
 
 /**

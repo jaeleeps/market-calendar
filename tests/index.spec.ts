@@ -11,6 +11,7 @@ import {
 import {
   DateRangeWarning,
   DroppedMarketTimesWarning,
+  InsufficientScheduleWarning,
   MissingSessionWarning,
   filterCalendarWarnings,
   resetCalendarWarnings,
@@ -633,5 +634,146 @@ test.group('mergeSchedules', (group) => {
       () => mergeSchedules([a], 'sideways' as 'inner'),
       /must be "outer" or "inner"/,
     )
+  })
+})
+
+test.group('dateRange limits', (group) => {
+  group.each.teardown(() => resetCalendarWarnings())
+
+  const sched = () => nyse().schedule('2024-07-01', '2024-07-01')
+  const hhmm = (stamps: DateTime[]) => stamps.map((t) => t.toFormat('HH:mm'))
+  const bars = (options: object = {}) =>
+    hhmm(dateRange(sched(), '1h', { closed: 'left', ...options }))
+
+  test('returns the whole session by default', ({ assert }) => {
+    assert.deepEqual(bars(), [
+      '09:30',
+      '10:30',
+      '11:30',
+      '12:30',
+      '13:30',
+      '14:30',
+      '15:30',
+    ])
+  })
+
+  test('selects from the grid rather than moving it', ({ assert }) => {
+    // 11:00 is between bars, so the next bar on the grid is returned.
+    assert.deepEqual(bars({ start: '2024-07-01T11:00' }), [
+      '11:30',
+      '12:30',
+      '13:30',
+      '14:30',
+      '15:30',
+    ])
+    assert.deepEqual(bars({ end: '2024-07-01T11:00' }), ['09:30', '10:30'])
+    assert.deepEqual(
+      bars({ start: '2024-07-01T11:00', end: '2024-07-01T13:30' }),
+      ['11:30', '12:30', '13:30'],
+    )
+  })
+
+  test('matches the reference implementation start example', ({ assert }) => {
+    // Docstring: session [9:30, 12:00], frequency 7min, start 9:45 =>
+    // underlying grid [9:30, 9:37, 9:44, 9:51, ...] so the result opens at 9:51.
+    const at = (t: string) => et(`2024-07-01T${t}`)
+    const session = [
+      {
+        date: at('00:00'),
+        market_open: at('09:30'),
+        market_close: at('12:00'),
+      },
+    ]
+
+    const stamps = dateRange(session, '7min', {
+      closed: 'left',
+      start: '2024-07-01T09:45',
+    })
+    assert.deepEqual(hhmm(stamps).slice(0, 3), ['09:51', '09:58', '10:05'])
+  })
+
+  test('reads bounds as ISO strings, seconds or DateTimes', ({ assert }) => {
+    const noon = et('2024-07-01T12:00')
+    assert.deepEqual(bars({ start: noon }), bars({ start: '2024-07-01T12:00' }))
+    assert.deepEqual(
+      bars({ start: noon.toSeconds() }),
+      bars({ start: '2024-07-01T12:00' }),
+    )
+  })
+
+  test('takes periods forward from the start', ({ assert }) => {
+    assert.deepEqual(bars({ periods: 3 }), ['09:30', '10:30', '11:30'])
+    assert.deepEqual(bars({ start: '2024-07-01T11:00', periods: 2 }), [
+      '11:30',
+      '12:30',
+    ])
+    assert.deepEqual(bars({ periods: 0 }), [])
+  })
+
+  test('takes periods backward from the end', ({ assert }) => {
+    assert.deepEqual(bars({ end: '2024-07-01T13:30', periods: 2 }), [
+      '12:30',
+      '13:30',
+    ])
+  })
+
+  test('ignores periods when both bounds are given', ({ assert }) => {
+    assert.deepEqual(
+      bars({ start: '2024-07-01T11:00', end: '2024-07-01T13:30', periods: 1 }),
+      ['11:30', '12:30', '13:30'],
+    )
+  })
+
+  test('warns when the schedule starts too late', ({ assert }) => {
+    filterCalendarWarnings('error')
+    try {
+      dateRange(sched(), '1h', { start: '2024-06-28T09:30' })
+      assert.fail('expected an InsufficientScheduleWarning')
+    } catch (err) {
+      assert.instanceOf(err, InsufficientScheduleWarning)
+      assert.isTrue((err as InsufficientScheduleWarning).atStart)
+      assert.match((err as InsufficientScheduleWarning).message, /begins at/)
+    }
+  })
+
+  test('warns when the schedule ends too early', ({ assert }) => {
+    filterCalendarWarnings('error')
+    try {
+      dateRange(sched(), '1h', { end: '2024-07-05T16:00' })
+      assert.fail('expected an InsufficientScheduleWarning')
+    } catch (err) {
+      assert.instanceOf(err, InsufficientScheduleWarning)
+      assert.isFalse((err as InsufficientScheduleWarning).atStart)
+    }
+  })
+
+  test('warns when it cannot yield enough periods', ({ assert }) => {
+    filterCalendarWarnings('error')
+    try {
+      dateRange(sched(), '1h', { closed: 'left', periods: 99 })
+      assert.fail('expected an InsufficientScheduleWarning')
+    } catch (err) {
+      assert.instanceOf(err, InsufficientScheduleWarning)
+      assert.equal((err as InsufficientScheduleWarning).requested, 99)
+      assert.equal((err as InsufficientScheduleWarning).available, 7)
+    }
+  })
+
+  test('still returns what it has when short', ({ assert }) => {
+    filterCalendarWarnings('ignore')
+    assert.lengthOf(
+      dateRange(sched(), '1h', { closed: 'left', periods: 99 }),
+      7,
+    )
+  })
+
+  test('rejects impossible bounds', ({ assert }) => {
+    filterCalendarWarnings('ignore')
+    assert.throws(
+      () => bars({ start: '2024-07-01T14:00', end: '2024-07-01T10:00' }),
+      /is after end/,
+    )
+    assert.throws(() => bars({ periods: -1 }), /non-negative integer/)
+    assert.throws(() => bars({ start: 'not-a-date' }), /Invalid timestamp/)
   })
 })
