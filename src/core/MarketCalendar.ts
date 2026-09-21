@@ -50,6 +50,23 @@ const OPENS_MARKET: Record<MarketTimeKey, boolean> = {
   post: false,
 }
 
+/**
+ * A trading halt: the session it falls on and the spans it covers.
+ *
+ * A span's times are ordinary market times, so one may carry a day offset to
+ * describe a halt that runs across midnight.
+ */
+export interface Interruption {
+  /** Session date, as YYYY-MM-DD. */
+  date: string
+  /** Each halt on that day, as a start and an end. */
+  spans: Array<[start: TimeOfDay, end: TimeOfDay]>
+}
+
+/** Prefixes of the schedule columns a halt produces. */
+const INTERRUPTION_START = 'interruption_start_'
+const INTERRUPTION_END = 'interruption_end_'
+
 /** An instant at which the market opens or closes. */
 interface MarketEvent {
   at: DateTime
@@ -71,6 +88,11 @@ export interface ScheduleOptions {
    * altogether. Defaults to true.
    */
   forceSpecialTimes?: boolean | null
+  /**
+   * Publish the trading halts of each day as interruption_start_n and
+   * interruption_end_n columns. Defaults to false.
+   */
+  interruptions?: boolean
 }
 
 /** Options for asking whether the market is open. */
@@ -175,6 +197,9 @@ export abstract class MarketCalendar {
    * its post-market session on the days it closes early.
    */
   specialTimes: Partial<Record<MarketTimeKey, SpecialTime[]>> = {}
+
+  /** Days the market halted trading part way through. */
+  interruptions: Interruption[] = []
 
   /**
    * Replace an existing market time.
@@ -330,7 +355,12 @@ export abstract class MarketCalendar {
       tz = this.tz,
       marketTimes = 'all',
       forceSpecialTimes = true,
+      interruptions = false,
     } = options
+
+    const halts = interruptions
+      ? new Map(this.interruptions.map((halt) => [halt.date, halt]))
+      : undefined
 
     const keys =
       marketTimes === 'all'
@@ -368,6 +398,13 @@ export abstract class MarketCalendar {
       if (forceSpecialTimes === true) {
         this.conformToSpecialTimes(times, keys, special, iso, date)
       }
+
+      // Halts are not market times: they are added afterwards and are not
+      // conformed to a special open or close.
+      halts?.get(iso)?.spans.forEach(([from, to], index) => {
+        times[`${INTERRUPTION_START}${index + 1}`] = this.at(date, from)
+        times[`${INTERRUPTION_END}${index + 1}`] = this.at(date, to)
+      })
 
       const zoned = Object.fromEntries(
         Object.entries(times).map(([key, at]) => [key, at.setZone(tz)]),
@@ -442,9 +479,11 @@ export abstract class MarketCalendar {
 
     // A session can open the evening before its own trade date, so the
     // neighbouring days are searched as well as this one.
+    // A halt stops trading as surely as a close, so it always counts here.
     const window = this.schedule(
       local.minus({ days: 1 }),
       local.plus({ days: 1 }),
+      { interruptions: true },
     )
     const events = window
       .flatMap((day) => this.marketEvents(day, onlyRTH))
@@ -478,7 +517,7 @@ export abstract class MarketCalendar {
       .map((key) => ({ key, at: day[key] }))
       .sort((a, b) => a.at.toMillis() - b.at.toMillis())
 
-    return times.map((event, index) => ({
+    const events: MarketEvent[] = times.map((event, index) => ({
       at: event.at,
       // A close followed by a post session hands trading over rather than
       // ending it, so it reads as an opening.
@@ -487,6 +526,16 @@ export abstract class MarketCalendar {
           ? true
           : OPENS_MARKET[event.key],
     }))
+
+    for (const [column, at] of Object.entries(day)) {
+      if (column.startsWith(INTERRUPTION_START)) {
+        events.push({ at, opens: false })
+      } else if (column.startsWith(INTERRUPTION_END)) {
+        events.push({ at, opens: true })
+      }
+    }
+
+    return events
   }
 
   /**
