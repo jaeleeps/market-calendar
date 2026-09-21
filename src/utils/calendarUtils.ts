@@ -2,6 +2,7 @@ import { DateTime, Duration } from 'luxon'
 import {
   DateRangeSession,
   Frequency,
+  IntradaySession,
   IntervalClosed,
   MarketDaySchedule,
   MarketSchedule,
@@ -335,7 +336,7 @@ export interface DateRangeOptions {
 }
 
 /** Column pairs that bound each session, in the order they occur in a day. */
-const SESSION_COLUMNS: Record<DateRangeSession, [string, string][]> = {
+const SESSION_COLUMNS: Record<IntradaySession, [string, string][]> = {
   pre: [['pre', 'market_open']],
   RTH: [['market_open', 'market_close']],
   post: [['market_close', 'post']],
@@ -529,10 +530,16 @@ function sessionIntervals(
   const hasBreak = columns.has('break_start') && columns.has('break_end')
 
   const pairs: [string, string][] = []
+  const gaps: DateRangeSession[] = []
   const skipped: string[] = []
   const missing = new Set<string>()
 
   for (const name of requested) {
+    if (name === 'closed' || name === 'closed_masked') {
+      gaps.push(name)
+      continue
+    }
+
     const wanted =
       name === 'RTH' && hasBreak ? RTH_WITH_BREAK : SESSION_COLUMNS[name]
     if (!wanted) throw new Error(`Unknown session: ${name}`)
@@ -553,13 +560,76 @@ function sessionIntervals(
   const intervals: SessionInterval[] = []
   for (const day of schedule) {
     const date = day.date.toISODate() ?? ''
-    const spans = pairs
-      .map(([from, to]) => ({ date, start: day[from], end: day[to] }))
-      .filter((span) => span.start && span.end && span.start < span.end)
-      .sort((a, b) => a.start.toMillis() - b.start.toMillis())
-
-    intervals.push(...(mergeAdjacent ? merged(spans) : spans))
+    for (const [from, to] of pairs) {
+      intervals.push({ date, start: day[from], end: day[to] })
+    }
   }
+  for (const gap of gaps) {
+    intervals.push(...closedIntervals(schedule, gap === 'closed_masked'))
+  }
+
+  // Gaps span days, so ordering and merging are global rather than per day.
+  const spans = intervals
+    .filter((span) => span.start && span.end && span.start < span.end)
+    .sort((a, b) => a.start.toMillis() - b.start.toMillis())
+
+  return mergeAdjacent ? merged(spans) : spans
+}
+
+/**
+ * Build the intervals between one trading day's last market time and the next
+ * day's first, which is when the market is shut.
+ *
+ * The last day has no reopening inside the schedule, so its gap runs to
+ * midnight. When masked, a gap that spans a weekend or a holiday stops at
+ * midnight after the last trading day and resumes at midnight before the next
+ * one, leaving the closed days out entirely.
+ *
+ * Midnight here is midnight in the schedule's own timezone.
+ */
+function closedIntervals(
+  schedule: MarketSchedule,
+  masked: boolean,
+): SessionInterval[] {
+  const columns = new Set(Object.keys(schedule[0] ?? {}))
+  // Extended hours bound the gap when the schedule publishes them.
+  const closes = columns.has('post') ? 'post' : 'market_close'
+  const opens = columns.has('pre') ? 'pre' : 'market_open'
+
+  const intervals: SessionInterval[] = []
+
+  schedule.forEach((day, index) => {
+    const date = day.date.toISODate() ?? ''
+    const from = day[closes]
+    if (!from) return
+
+    const next = schedule[index + 1]
+    const midnightAfter = day.date.startOf('day').plus({ days: 1 })
+
+    if (!next) {
+      intervals.push({ date, start: from, end: midnightAfter })
+      return
+    }
+
+    const to = next[opens]
+    if (!to) return
+
+    const consecutive =
+      day.date.startOf('day').plus({ days: 1 }).toISODate() ===
+      next.date.toISODate()
+
+    if (masked && !consecutive) {
+      intervals.push({ date, start: from, end: midnightAfter })
+      intervals.push({
+        date: next.date.toISODate() ?? '',
+        start: next.date.startOf('day'),
+        end: to,
+      })
+      return
+    }
+
+    intervals.push({ date, start: from, end: to })
+  })
 
   return intervals
 }

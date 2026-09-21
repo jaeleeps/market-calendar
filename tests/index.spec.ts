@@ -777,3 +777,130 @@ test.group('dateRange limits', (group) => {
     assert.throws(() => bars({ start: 'not-a-date' }), /Invalid timestamp/)
   })
 })
+
+test.group('dateRange closed sessions', () => {
+  const stamps = (s: DateTime[]) => s.map((t) => t.toFormat('ccc HH:mm'))
+
+  test('spans from one day’s last market time to the next day’s first', ({
+    assert,
+  }) => {
+    // NYSE publishes pre and post, so the gap runs post -> next pre.
+    const sched = nyse().schedule('2024-07-01', '2024-07-02')
+    assert.deepEqual(
+      stamps(dateRange(sched, '1h', { session: 'closed', closed: 'left' })),
+      [
+        'Mon 20:00',
+        'Mon 21:00',
+        'Mon 22:00',
+        'Mon 23:00',
+        'Tue 00:00',
+        'Tue 01:00',
+        'Tue 02:00',
+        'Tue 03:00',
+        // The last day never reopens in this schedule, so it runs to midnight.
+        'Tue 20:00',
+        'Tue 21:00',
+        'Tue 22:00',
+        'Tue 23:00',
+      ],
+    )
+  })
+
+  test('runs straight through a holiday when unmasked', ({ assert }) => {
+    // 4 July is a holiday, and 3 July closes early so post is 17:00.
+    const sched = nyse().schedule('2024-07-03', '2024-07-05')
+    assert.deepEqual(
+      stamps(dateRange(sched, '4h', { session: 'closed', closed: 'left' })),
+      [
+        'Wed 17:00',
+        'Wed 21:00',
+        'Thu 01:00',
+        'Thu 05:00',
+        'Thu 09:00',
+        'Thu 13:00',
+        'Thu 17:00',
+        'Thu 21:00',
+        'Fri 01:00',
+        'Fri 20:00',
+      ],
+    )
+  })
+
+  test('masking leaves the closed days out entirely', ({ assert }) => {
+    const sched = nyse().schedule('2024-07-03', '2024-07-05')
+    assert.deepEqual(
+      stamps(
+        dateRange(sched, '4h', { session: 'closed_masked', closed: 'left' }),
+      ),
+      [
+        'Wed 17:00',
+        'Wed 21:00', // stops at midnight after the trading day
+        'Fri 00:00', //              resumes at midnight before the next one
+        'Fri 20:00',
+      ],
+    )
+  })
+
+  test('masking a weekend keeps Saturday and Sunday out', ({ assert }) => {
+    const sched = nyse().schedule('2024-07-05', '2024-07-08')
+    const masked = stamps(
+      dateRange(sched, '1h', { session: 'closed_masked', closed: 'left' }),
+    )
+    assert.notInclude(masked, 'Sat 00:00')
+    assert.notInclude(masked, 'Sun 12:00')
+    assert.include(masked, 'Fri 23:00')
+    assert.include(masked, 'Mon 00:00')
+  })
+
+  test('falls back to the open and close without extended hours', ({
+    assert,
+  }) => {
+    const on = (date: string, time: string) =>
+      DateTime.fromISO(`${date}T${time}`, { zone: 'UTC' })
+    const plain = [
+      {
+        date: on('2024-07-01', '00:00'),
+        market_open: on('2024-07-01', '09:30'),
+        market_close: on('2024-07-01', '16:00'),
+      },
+      {
+        date: on('2024-07-02', '00:00'),
+        market_open: on('2024-07-02', '09:30'),
+        market_close: on('2024-07-02', '16:00'),
+      },
+    ]
+
+    assert.deepEqual(
+      stamps(dateRange(plain, '4h', { session: 'closed', closed: 'left' })),
+      [
+        'Mon 16:00',
+        'Mon 20:00',
+        'Tue 00:00',
+        'Tue 04:00',
+        'Tue 08:00',
+        'Tue 16:00',
+        'Tue 20:00',
+      ],
+    )
+  })
+
+  test('closes the gap between sessions when merged with them', ({
+    assert,
+  }) => {
+    const sched = nyse().schedule('2024-07-01', '2024-07-02')
+    const all = dateRange(sched, '1h', {
+      session: ['ETH', 'RTH', 'closed'],
+      closed: 'left',
+    })
+
+    // Every hour from the first pre-market bar to the last closed-session one.
+    assert.lengthOf(all, 44)
+    assert.equal(all[0].toFormat('ccc HH:mm'), 'Mon 04:00')
+    assert.equal(all[all.length - 1].toFormat('ccc HH:mm'), 'Tue 23:00')
+
+    const gaps = new Set(
+      all.slice(1).map((t, i) => t.diff(all[i], 'hours').hours),
+    )
+    assert.deepEqual([...gaps], [1])
+  })
+})
