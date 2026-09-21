@@ -6,6 +6,7 @@ import { CBOEEquityOptions, CBOEIndexOptions, CFE } from './calendars/CBOE'
 import { IEX } from './calendars/IEX'
 import { JPX } from './calendars/JPX'
 import { LSE } from './calendars/LSE'
+import { TSX } from './calendars/TSX'
 
 const registry = new Registry<MarketCalendar>()
 
@@ -30,6 +31,7 @@ registerCalendar(CBOEIndexOptions)
 registerCalendar(IEX)
 registerCalendar(JPX)
 registerCalendar(LSE)
+registerCalendar(TSX)
 
 /**
  * Returns a new calendar instance for the given market code.

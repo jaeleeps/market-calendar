@@ -8,6 +8,7 @@ import {
   CMEEquity,
   JPX,
   LSE,
+  TSX,
 } from '../src'
 import {
   Interruption,
@@ -1893,5 +1894,67 @@ test.group('LSE calendar', () => {
 
   test('closes for the state funeral', ({ assert }) => {
     assert.equal(hours('2022-09-19'), 'closed')
+  })
+})
+
+test.group('TSX calendar', () => {
+  const tsx = new TSX()
+  const hours = (date: string) => {
+    const [day] = tsx.schedule(date, date)
+    return day
+      ? `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+      : 'closed'
+  }
+  const holidays = (year: number) =>
+    tsx.holidays(`${year}-01-01`, `${year}-12-31`).map((d) => d.toISODate())
+
+  test('keeps Toronto hours', ({ assert }) => {
+    assert.equal(hours('2024-06-03'), '09:30-16:00')
+    assert.equal(getCalendar('TSXV').name, 'TSX')
+  })
+
+  test('observes the Canadian holidays', ({ assert }) => {
+    assert.deepEqual(holidays(2024), [
+      '2024-01-01',
+      '2024-02-19', // Family Day
+      '2024-03-29', // Good Friday
+      '2024-05-20', // Victoria Day
+      '2024-07-01', // Canada Day
+      '2024-08-05', // Civic Holiday
+      '2024-09-02', // Labour Day
+      '2024-10-14', // Thanksgiving, in October rather than November
+      '2024-12-25',
+      '2024-12-26', // Boxing Day
+    ])
+    assert.deepEqual(holidays(2025), [
+      '2025-01-01',
+      '2025-02-17',
+      '2025-04-18',
+      '2025-05-19',
+      '2025-07-01',
+      '2025-08-04',
+      '2025-09-01',
+      '2025-10-13',
+      '2025-12-25',
+      '2025-12-26',
+    ])
+  })
+
+  test('has no Family Day before 2008', ({ assert }) => {
+    assert.notInclude(holidays(2007), '2007-02-19')
+    assert.include(holidays(2008), '2008-02-18')
+  })
+
+  test('closes early on a weekday Christmas Eve from 2010', ({ assert }) => {
+    assert.equal(hours('2024-12-24'), '09:30-13:00') // a Tuesday
+    assert.equal(hours('2021-12-24'), '09:30-13:00') // a Friday
+    assert.equal(hours('2009-12-24'), '09:30-16:00') // before the rule
+    assert.equal(hours('2022-12-24'), 'closed') //      a Saturday
+  })
+
+  test('shut for two days after the 2001 attacks', ({ assert }) => {
+    assert.equal(hours('2001-09-11'), 'closed')
+    assert.equal(hours('2001-09-12'), 'closed')
+    assert.equal(hours('2001-09-13'), '09:30-16:00')
   })
 })
