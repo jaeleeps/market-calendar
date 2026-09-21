@@ -3,6 +3,7 @@ export {
   MarketTimeKey,
   MarketTimeSpec,
   OpenAtTimeOptions,
+  ScheduleOptions,
   TimeOfDay,
   SpecialTime,
   DateLike,
