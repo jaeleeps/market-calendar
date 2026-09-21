@@ -1,4 +1,5 @@
 export {
+  Interruption,
   MarketCalendar,
   MarketTimeKey,
   MarketTimeSpec,

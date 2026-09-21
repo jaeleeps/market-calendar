@@ -2,12 +2,50 @@ import { test } from '@japa/runner'
 import { DateTime, Duration } from 'luxon'
 import { getCalendar, calendarNames, NYSE } from '../src'
 import {
+  Interruption,
   MarketCalendar,
   OpenAtTimeOptions,
   TimeOfDay,
 } from '../src/core/MarketCalendar'
 import { ProtectedDict } from '../src/core/classRegistry'
 import { Dated } from '../src/utils/dated'
+
+/** A calendar that halted trading, following the reference docstring's shape. */
+class HaltingMarket extends MarketCalendar {
+  readonly name = 'HALT'
+  readonly tz = 'UTC'
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([
+    ['market_open', [{ from: null, value: [9, 30] }]],
+    ['market_close', [{ from: null, value: [16, 0] }]],
+  ])
+
+  override interruptions: Interruption[] = [
+    {
+      date: '2024-07-02',
+      spans: [
+        [
+          [9, 59],
+          [10, 0],
+        ],
+        [
+          [10, 29],
+          [10, 30],
+        ],
+      ],
+    },
+    // A halt that runs past midnight, using a day offset on its end.
+    {
+      date: '2024-07-03',
+      spans: [
+        [
+          [11, 0],
+          [11, 2, 1],
+        ],
+      ],
+    },
+  ]
+}
 
 /** A calendar whose session opens the evening before, as CME's do. */
 class OvernightMarket extends MarketCalendar {
@@ -1220,5 +1258,72 @@ test.group('special time clamping', () => {
 
   test('leaves a regular day untouched', ({ assert }) => {
     assert.equal(columns('2024-07-02'), 'open=09:30 close=16:00 post=20:00')
+  })
+})
+
+test.group('interruptions', () => {
+  const cal = new HaltingMarket()
+  const utc = (at: string) => DateTime.fromISO(at, { zone: 'UTC' })
+  const halts = (date: string) => {
+    const [day] = cal.schedule(date, date, { interruptions: true })
+    return Object.keys(day)
+      .filter((key) => key.startsWith('interruption'))
+      .sort()
+      .map((key) => `${key}=${day[key].toFormat('dd HH:mm')}`)
+      .join(' ')
+  }
+
+  test('leaves them out of a schedule by default', ({ assert }) => {
+    assert.deepEqual(
+      Object.keys(cal.schedule('2024-07-02', '2024-07-02')[0]).sort(),
+      ['date', 'market_close', 'market_open'],
+    )
+  })
+
+  test('numbers each halt of the day from one', ({ assert }) => {
+    assert.equal(
+      halts('2024-07-02'),
+      'interruption_end_1=02 10:00 interruption_end_2=02 10:30 ' +
+        'interruption_start_1=02 09:59 interruption_start_2=02 10:29',
+    )
+  })
+
+  test('carries a halt across midnight with a day offset', ({ assert }) => {
+    assert.equal(
+      halts('2024-07-03'),
+      'interruption_end_1=04 11:02 interruption_start_1=03 11:00',
+    )
+  })
+
+  test('gives a day without a halt no columns', ({ assert }) => {
+    assert.equal(halts('2024-07-01'), '')
+  })
+
+  test('closes the market for the duration', ({ assert }) => {
+    assert.isTrue(cal.openAtTime(utc('2024-07-02T09:58')))
+    assert.isFalse(cal.openAtTime(utc('2024-07-02T09:59'))) // halt begins
+    assert.isTrue(cal.openAtTime(utc('2024-07-02T10:00'))) //  and ends
+    assert.isTrue(cal.openAtTime(utc('2024-07-02T10:15')))
+    assert.isFalse(cal.openAtTime(utc('2024-07-02T10:29'))) // the second halt
+    assert.isTrue(cal.openAtTime(utc('2024-07-02T10:30')))
+  })
+
+  test('counts the halt instant when includeClose is set', ({ assert }) => {
+    assert.isTrue(
+      cal.openAtTime(utc('2024-07-02T09:59'), { includeClose: true }),
+    )
+  })
+
+  test('leaves an unhalted day alone', ({ assert }) => {
+    assert.isTrue(cal.openAtTime(utc('2024-07-01T10:15')))
+    assert.isTrue(cal.openAtTime(utc('2024-07-01T09:59')))
+  })
+
+  test('a calendar without halts is unchanged', ({ assert }) => {
+    assert.deepEqual(nyse().interruptions, [])
+    assert.deepEqual(
+      nyse().schedule('2024-07-02', '2024-07-02', { interruptions: true }),
+      nyse().schedule('2024-07-02', '2024-07-02'),
+    )
   })
 })
