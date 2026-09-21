@@ -33,6 +33,7 @@ export {
   CMEGlobexGrains,
   CMEGlobexLivestock,
 } from './calendars/CMEGlobex'
+export { SIFMAJP, SIFMAUK, SIFMAUS } from './calendars/SIFMA'
 export {
   getCalendar,
   calendarNames,
