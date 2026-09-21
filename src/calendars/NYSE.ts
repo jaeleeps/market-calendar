@@ -9,7 +9,14 @@ import { ProtectedDict } from '../core/classRegistry'
 import { Weekday } from '../utils/constants'
 import { Dated } from '../utils/dated'
 import * as us from '../holidays/us'
-import { NYSESaturdayClosings } from '../holidays/nyse'
+import {
+  ChristmasEvePost1999Early1pmClose,
+  FridayAfterIndependenceDayNYSEpre2013,
+  NYSEEarlyCloses,
+  NYSEEarlyClose1pmDates,
+  NYSELateOpens,
+  NYSESaturdayClosings,
+} from '../holidays/nyse'
 
 /**
  * New York Stock Exchange.
@@ -27,10 +34,9 @@ import { NYSESaturdayClosings } from '../holidays/nyse'
  * one-off historical early closes in the reference implementation (weather,
  * funerals, backlog half-days) are not modelled.
  *
- * Known gap: the special closes in the reference implementation's
- * `holidays/nyse.py` are not ported. It has nine rule-driven groups spanning
- * 11:00 to 15:56 and five adhoc ones; this calendar has the 13:00 and 14:00
- * groups only, so other historical early closes report as full days.
+ * Special closes run from 11:00 to 15:56 and late opens from 09:31 to 13:00,
+ * almost all of them one-off events — a funeral, a snowstorm, a power failure,
+ * the paperwork backlogs of 1967 to 1970. Only a handful are recurring rules.
  */
 export class NYSE extends MarketCalendar {
   static override aliases = ['XNYS', 'NYSE', 'stock']
@@ -136,29 +142,44 @@ export class NYSE extends MarketCalendar {
   ]
 
   /**
-   * The half-days that close at 13:00. The post-market session on those days
-   * ends at 17:00 rather than 20:00, so both rules read from one calendar.
+   * The rules behind the 13:00 half-days. The post session on those days ends
+   * at 17:00 rather than 20:00, so both read from one calendar.
    */
-  private static readonly EARLY_CLOSE_1PM = new HolidayCalendar([
-    us.ChristmasEveInOrAfter1993,
-    us.USBlackFridayInOrAfter1993,
+  private static readonly CLOSE_1PM_RULES = new HolidayCalendar([
+    FridayAfterIndependenceDayNYSEpre2013,
     us.MonTuesThursBeforeIndependenceDay,
-    us.FridayAfterIndependenceDayPre2013,
     us.WednesdayBeforeIndependenceDayPost2013,
+    us.USBlackFridayInOrAfter1993,
+    ChristmasEvePost1999Early1pmClose,
+  ])
+
+  /** The rule behind the 14:00 half-days. */
+  private static readonly CLOSE_2PM_RULES = new HolidayCalendar([
+    us.USBlackFridayBefore1993,
   ])
 
   override specialTimes = {
-    market_close: [
+    market_open: NYSELateOpens.map(({ time, dates }) => ({
+      time: time as TimeOfDay,
+      adhocDates: dates,
+    })),
+    market_close: NYSEEarlyCloses.map(({ time, dates }) => ({
+      time: time as TimeOfDay,
+      adhocDates: dates,
+      calendar:
+        time[0] === 13 && time[1] === 0
+          ? NYSE.CLOSE_1PM_RULES
+          : time[0] === 14 && time[1] === 0
+            ? NYSE.CLOSE_2PM_RULES
+            : undefined,
+    })),
+    post: [
       {
-        time: [14, 0] as TimeOfDay,
-        calendar: new HolidayCalendar([
-          us.ChristmasEveBefore1993,
-          us.USBlackFridayBefore1993,
-        ]),
+        time: [17, 0] as TimeOfDay,
+        calendar: NYSE.CLOSE_1PM_RULES,
+        adhocDates: NYSEEarlyClose1pmDates,
       },
-      { time: [13, 0] as TimeOfDay, calendar: NYSE.EARLY_CLOSE_1PM },
     ],
-    post: [{ time: [17, 0] as TimeOfDay, calendar: NYSE.EARLY_CLOSE_1PM }],
   }
 
   /**
