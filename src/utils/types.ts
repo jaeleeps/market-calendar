@@ -65,3 +65,6 @@ export type Frequency = number | Duration | string
 
 /** A timestamp given as an ISO string, POSIX seconds, or a DateTime. */
 export type TimestampLike = string | number | DateTime
+
+/** A calendar period that trading days can be grouped into. */
+export type CalendarPeriod = 'day' | 'week' | 'month' | 'quarter' | 'year'

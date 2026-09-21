@@ -27,6 +27,7 @@ export {
   DateRangeSession,
   Frequency,
   IntradaySession,
+  CalendarPeriod,
   IntervalClosed,
   MarketDaySchedule,
   MarketSchedule,
@@ -36,7 +37,10 @@ export {
 } from './utils/types'
 export {
   dateRange,
+  dateRangeHTF,
   DateRangeOptions,
+  HigherTimeframeAnchors,
+  HigherTimeframeOptions,
   markSession,
   mergeSchedules,
   convertFreq,

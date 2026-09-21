@@ -106,7 +106,9 @@ import { weekdayOffset, easterSunday } from '../src/utils/rules'
 import { Weekday } from '../src/utils/constants'
 import { saturdays } from '../src/holidays/nyse'
 import {
+  convertFreq,
   dateRange,
+  dateRangeHTF,
   markSession,
   mergeSchedules,
 } from '../src/utils/calendarUtils'
@@ -1672,5 +1674,148 @@ test.group('JPX calendar', () => {
     assert.equal(hours('2021-08-09'), 'closed') // Mountain Day, observed
     // Sports Day was away from its usual October slot that year.
     assert.notEqual(hours('2021-10-11'), 'closed')
+  })
+})
+
+test.group('markSession boundaries', () => {
+  const cal = nyse()
+  const schedule = () => cal.schedule('2024-07-02', '2024-07-02')
+  const label = (time: string, closed: 'left' | 'right') => {
+    const at = et(`2024-07-02T${time}`)
+    return markSession(schedule(), [at], {}, closed)[at.toISO()!]
+  }
+
+  test('right gives a boundary to the session ending on it', ({ assert }) => {
+    assert.equal(label('04:00', 'right'), 'closed') // pre has not begun
+    assert.equal(label('09:30', 'right'), 'pre') //    pre ends here
+    assert.equal(label('16:00', 'right'), 'rth')
+    assert.equal(label('20:00', 'right'), 'post')
+  })
+
+  test('left gives it to the session starting on it', ({ assert }) => {
+    assert.equal(label('04:00', 'left'), 'pre') //  pre begins here
+    assert.equal(label('09:30', 'left'), 'rth')
+    assert.equal(label('16:00', 'left'), 'post')
+    assert.equal(label('20:00', 'left'), 'closed') // post has ended
+  })
+
+  test('leaves the inside of a session alone', ({ assert }) => {
+    for (const closed of ['left', 'right'] as const) {
+      assert.equal(label('05:00', closed), 'pre')
+      assert.equal(label('10:00', closed), 'rth')
+      assert.equal(label('18:00', closed), 'post')
+    }
+  })
+})
+
+test.group('dateRangeHTF', () => {
+  const cal = nyse()
+  const year = () => cal.validDays('2024-01-01', '2024-12-31')
+  const iso = (days: DateTime[]) => days.map((d) => d.toISODate())
+
+  test('takes the last trading day of each month', ({ assert }) => {
+    assert.deepEqual(iso(dateRangeHTF(year(), 'ME')), [
+      '2024-01-31',
+      '2024-02-29',
+      '2024-03-28',
+      '2024-04-30',
+      '2024-05-31',
+      '2024-06-28',
+      '2024-07-31',
+      '2024-08-30',
+      '2024-09-30',
+      '2024-10-31',
+      '2024-11-29',
+      '2024-12-31',
+    ])
+  })
+
+  test('takes the first when closed is left', ({ assert }) => {
+    // 1 January is a holiday and 1 June a Saturday, so neither is a session.
+    const first = iso(dateRangeHTF(year(), 'M', { closed: 'left' }))
+    assert.equal(first[0], '2024-01-02')
+    assert.equal(first[5], '2024-06-03')
+  })
+
+  test('counts trading days, not calendar days', ({ assert }) => {
+    const every50th = iso(dateRangeHTF(year(), '50D'))
+    assert.deepEqual(every50th, [
+      '2024-01-02',
+      '2024-03-14',
+      '2024-05-24',
+      '2024-08-07',
+      '2024-10-17',
+      '2024-12-30',
+    ])
+  })
+
+  test('anchors the week where asked', ({ assert }) => {
+    const sunday = iso(
+      dateRangeHTF(year(), 'W', { closed: 'left', periods: 3 }),
+    )
+    const wednesday = iso(
+      dateRangeHTF(year(), 'W', {
+        closed: 'left',
+        periods: 3,
+        weekStartsOn: 3,
+      }),
+    )
+    assert.deepEqual(sunday, ['2024-01-02', '2024-01-08', '2024-01-16'])
+    assert.deepEqual(wednesday, ['2024-01-02', '2024-01-03', '2024-01-10'])
+  })
+
+  test('anchors the year where asked', ({ assert }) => {
+    const era = cal.validDays('2023-01-01', '2025-06-30')
+    assert.deepEqual(iso(dateRangeHTF(era, 'Y', { closed: 'left' })), [
+      '2023-01-03',
+      '2024-01-02',
+      '2025-01-02',
+    ])
+    // A July anchor gives fiscal years, so each run ends in the June.
+    assert.deepEqual(iso(dateRangeHTF(era, 'Y', { yearStartsIn: 7 })), [
+      '2023-06-30',
+      '2024-06-28',
+      '2025-06-30',
+    ])
+  })
+
+  test('anchors quarters only where it moves them', ({ assert }) => {
+    const era = cal.validDays('2024-01-01', '2024-12-31')
+    // Six months is two whole quarters, so a July anchor changes nothing.
+    assert.deepEqual(
+      iso(dateRangeHTF(era, 'Q', { closed: 'left', yearStartsIn: 7 })),
+      iso(dateRangeHTF(era, 'Q', { closed: 'left' })),
+    )
+    // February does move them. January belongs to the quarter before the
+    // range starts, so it appears as a partial period of its own.
+    assert.deepEqual(
+      iso(dateRangeHTF(era, 'Q', { closed: 'left', yearStartsIn: 2 })),
+      ['2024-01-02', '2024-02-01', '2024-05-01', '2024-08-01', '2024-11-01'],
+    )
+  })
+
+  test('limits by start, end and period count', ({ assert }) => {
+    assert.deepEqual(
+      iso(dateRangeHTF(year(), 'ME', { end: '2024-12-31', periods: 3 })),
+      ['2024-10-31', '2024-11-29', '2024-12-31'],
+    )
+    assert.deepEqual(iso(dateRangeHTF(year(), 'ME', { start: '2024-11-01' })), [
+      '2024-11-29',
+      '2024-12-31',
+    ])
+  })
+
+  test('rejects a frequency it cannot read', ({ assert }) => {
+    assert.throws(() => dateRangeHTF(year(), 'fortnight'), /Invalid frequency/)
+    assert.throws(() => dateRangeHTF(year(), 0), /positive whole number/)
+  })
+
+  test('convertFreq reads the same codes', ({ assert }) => {
+    assert.deepEqual(iso(convertFreq(year(), 'ME')).slice(0, 3), [
+      '2024-01-02',
+      '2024-02-01',
+      '2024-03-01',
+    ])
+    assert.deepEqual(iso(convertFreq(year(), 'Y')), ['2024-01-02'])
   })
 })

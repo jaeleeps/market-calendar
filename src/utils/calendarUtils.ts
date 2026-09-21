@@ -1,4 +1,5 @@
 import { DateTime, Duration } from 'luxon'
+import { Weekday } from './constants'
 import {
   DateRangeSession,
   Frequency,
@@ -7,6 +8,7 @@ import {
   MarketDaySchedule,
   MarketSchedule,
   MergeStrategy,
+  CalendarPeriod,
   TimestampLike,
   TradingSessionLabel,
 } from './types'
@@ -28,12 +30,15 @@ import { HolidayCalendar } from '../core/HolidayCalendar'
  * @param schedule - The market schedule DataFrame
  * @param timestamps - Array of DateTime timestamps
  * @param labelMap - Optional override for label names
+ * @param closed - Which edge of a session contains its own boundary:
+ *   'right' for (start, end], 'left' for [start, end)
  * @returns A mapping from each timestamp to a session label
  */
 export function markSession(
   schedule: MarketSchedule,
   timestamps: DateTime[],
   labelMap: Partial<Record<TradingSessionLabel, string>> = {},
+  closed: IntervalClosed = 'right',
 ): Record<string, string> {
   const sessionLabels = availableSessions(schedule)
   const rows = new Map<string, MarketDaySchedule>()
@@ -53,7 +58,7 @@ export function markSession(
     const local = zone ? ts.setZone(zone) : ts
     const row = rows.get(local.toISODate() ?? '')
     const label = row
-      ? getLabelForTimestamp(local, row, sessionLabels)
+      ? getLabelForTimestamp(local, row, sessionLabels, closed)
       : 'closed'
     result[key] = labelMap[label] ?? DEFAULT_LABEL_MAP[label]
   }
@@ -195,12 +200,14 @@ function reportDroppedColumns(schedules: MarketSchedule[]): void {
  * @param ts - The DateTime timestamp
  * @param times - The session times for a day
  * @param labels - List of possible session labels
+ * @param closed - Which edge of a session contains its own boundary
  * @returns The matching label, or 'closed' when no session contains it
  */
 function getLabelForTimestamp(
   ts: DateTime,
   times: Record<string, DateTime>,
   labels: TradingSessionLabel[],
+  closed: IntervalClosed,
 ): TradingSessionLabel {
   const checks: Partial<Record<TradingSessionLabel, [DateTime, DateTime]>> = {
     pre: [times['pre'], times['market_open']],
@@ -216,9 +223,12 @@ function getLabelForTimestamp(
     const range = checks[label]
     if (!range) continue
     const [start, end] = range
-    if (start && end && ts >= start && ts <= end) {
-      return label
-    }
+    if (!start || !end) continue
+
+    // Adjacent sessions share a boundary, so exactly one of them may claim it.
+    const within =
+      closed === 'right' ? ts > start && ts <= end : ts >= start && ts < end
+    if (within) return label
   }
   return 'closed'
 }
@@ -237,49 +247,230 @@ function max(dates: DateTime[]): DateTime {
   return dates.reduce((a, b) => (a > b ? a : b))
 }
 
+/** Period codes accepted wherever a calendar period is named. */
+const PERIOD_CODES: Record<string, CalendarPeriod> = {
+  d: 'day',
+  day: 'day',
+  w: 'week',
+  week: 'week',
+  m: 'month',
+  me: 'month',
+  ms: 'month',
+  month: 'month',
+  q: 'quarter',
+  qe: 'quarter',
+  qs: 'quarter',
+  quarter: 'quarter',
+  y: 'year',
+  ye: 'year',
+  ys: 'year',
+  a: 'year',
+  year: 'year',
+}
+
+/** Months, for anchoring quarters and years. */
+const MONTHS = [
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+]
+
+/** Weekdays, for anchoring weeks. */
+const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+
 /**
- * Convert a list of DateTime instances to a lower frequency
- * by returning the first timestamp in each group.
+ * Read a period code, with or without a leading multiple.
  *
- * Mimics pandas `asfreq()` behavior.
+ * @param frequency - Something like 'W', '2M', 'quarter' or 3 (days)
+ * @returns The multiple and the period it counts
+ * @throws If the code names no period, or the multiple is not positive
+ */
+function toPeriod(frequency: string | number): [number, CalendarPeriod] {
+  if (typeof frequency === 'number') {
+    if (!Number.isInteger(frequency) || frequency < 1) {
+      throw new Error(`Frequency must be a positive whole number of days`)
+    }
+    return [frequency, 'day']
+  }
+
+  const match = /^\s*(\d*)\s*([a-z]+)\s*$/i.exec(frequency)
+  const period = match ? PERIOD_CODES[match[2].toLowerCase()] : undefined
+  if (!match || !period) throw new Error(`Invalid frequency: ${frequency}`)
+
+  const multiple = match[1] === '' ? 1 : Number(match[1])
+  if (multiple < 1) throw new Error(`Invalid frequency: ${frequency}`)
+  return [multiple, period]
+}
+
+/**
+ * The period a date belongs to, as a key that changes when the period does.
+ */
+function periodKey(
+  date: DateTime,
+  period: CalendarPeriod,
+  { weekStartsOn, yearStartsIn }: Required<HigherTimeframeAnchors>,
+): string {
+  switch (period) {
+    case 'day':
+      return date.toISODate()!
+    case 'week': {
+      // Wind back to the weekday the week is anchored on.
+      const back = (date.weekday - weekStartsOn + 7) % 7
+      return date.minus({ days: back }).toISODate()!
+    }
+    case 'month':
+      return `${date.year}-${date.month}`
+    case 'quarter': {
+      const offset = (date.month - yearStartsIn + 12) % 12
+      const year = date.month >= yearStartsIn ? date.year : date.year - 1
+      return `${year}-Q${Math.floor(offset / 3)}`
+    }
+    case 'year':
+      return `${date.month >= yearStartsIn ? date.year : date.year - 1}`
+  }
+}
+
+/**
+ * Convert a list of DateTime instances to a lower frequency by keeping the
+ * first of each period.
+ *
+ * Mimics pandas `asfreq()` in spirit: unlike pandas it never introduces a
+ * date that was not in the input, so a period with no dates is simply absent.
  *
  * @param timestamps - Array of DateTime objects
- * @param frequency - Desired frequency: 'day' | 'week' | 'month' | 'year'
- * @returns Deduplicated DateTime array at the specified frequency
+ * @param frequency - A period name or code: 'day', 'W', 'ME', 'quarter', 'Y'
+ * @returns One timestamp per period, in order
  */
 export function convertFreq(
   timestamps: DateTime[],
-  frequency: 'day' | 'week' | 'month' | 'year',
+  frequency: string,
 ): DateTime[] {
+  const [, period] = toPeriod(frequency)
+  const anchors = { weekStartsOn: 7, yearStartsIn: 1 }
   const seen = new Set<string>()
   const result: DateTime[] = []
 
   for (const dt of timestamps) {
-    let key: string
-    switch (frequency) {
-      case 'day':
-        key = dt.toISODate() ?? ''
-        break
-      case 'week':
-        key = `${dt.weekYear}-W${dt.weekNumber}`
-        break
-      case 'month':
-        key = `${dt.year}-${dt.month}`
-        break
-      case 'year':
-        key = `${dt.year}`
-        break
-      default:
-        throw new Error(`Unsupported frequency: ${frequency}`)
-    }
-
-    if (!seen.has(key)) {
-      seen.add(key)
-      result.push(dt)
-    }
+    const key = periodKey(dt, period, anchors)
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(dt)
   }
 
   return result
+}
+
+/** Where weeks and years begin, for the higher timeframes. */
+export interface HigherTimeframeAnchors {
+  /** Weekday a week starts on, as a Luxon weekday. Defaults to Sunday. */
+  weekStartsOn?: Weekday
+  /** Month a year starts in, 1 to 12. Defaults to January. */
+  yearStartsIn?: number
+}
+
+/** Options for `dateRangeHTF`. */
+export interface HigherTimeframeOptions extends HigherTimeframeAnchors {
+  /**
+   * Which trading day of each period to take: 'right' the last, 'left' the
+   * first. Defaults to 'right'. Ignored when counting days.
+   */
+  closed?: IntervalClosed
+  /** Earliest date to return. */
+  start?: TimestampLike
+  /** Latest date to return. */
+  end?: TimestampLike
+  /** How many periods to return, from the start or back from the end. */
+  periods?: number
+}
+
+/**
+ * Pick one trading day per period, for periods of a day and longer.
+ *
+ * A day frequency counts trading days, so '2D' is every other trading day
+ * rather than every second calendar day. Longer periods return the first or
+ * last trading day of each — the last day of the month, say, whatever weekday
+ * that turns out to be.
+ *
+ * @param days - Trading days, as from `MarketCalendar.validDays()`
+ * @param frequency - A period code such as '1D', '2W', 'ME', 'Q' or 'Y'
+ * @param options - Which end of the period to take, the anchors, and limits
+ * @returns The chosen trading days, in order
+ *
+ * @example
+ * dateRangeHTF(nyse.validDays('2024-01-01', '2024-12-31'), 'ME')
+ * // => the last trading day of each month
+ */
+export function dateRangeHTF(
+  days: DateTime[],
+  frequency: string | number,
+  options: HigherTimeframeOptions = {},
+): DateTime[] {
+  const {
+    closed = 'right',
+    weekStartsOn = Weekday.SUNDAY,
+    yearStartsIn = 1,
+  } = options
+  const [multiple, period] = toPeriod(frequency)
+
+  let chosen: DateTime[]
+  if (period === 'day') {
+    // Every nth trading day, counted from the first one given.
+    chosen = days.filter((_, index) => index % multiple === 0)
+  } else {
+    const anchors = { weekStartsOn, yearStartsIn }
+    const byPeriod = new Map<string, DateTime[]>()
+    for (const day of days) {
+      const key = periodKey(day, period, anchors)
+      const group = byPeriod.get(key)
+      if (group) group.push(day)
+      else byPeriod.set(key, [day])
+    }
+
+    const picked = [...byPeriod.values()].map((group) =>
+      closed === 'right' ? group[group.length - 1] : group[0],
+    )
+    chosen = picked.filter((_, index) => index % multiple === 0)
+  }
+
+  return limitDays(chosen, options)
+}
+
+/** Apply the start, end and period count of a higher timeframe range. */
+function limitDays(
+  days: DateTime[],
+  { start, end, periods }: HigherTimeframeOptions,
+): DateTime[] {
+  let result = days
+  const zone = days[0]?.zoneName ?? 'UTC'
+
+  if (start !== undefined) {
+    const from = toTimestamp(start, zone).startOf('day')
+    result = result.filter((d) => d >= from)
+  }
+  if (end !== undefined) {
+    const to = toTimestamp(end, zone).endOf('day')
+    result = result.filter((d) => d <= to)
+  }
+
+  if (periods === undefined || (start !== undefined && end !== undefined)) {
+    return result
+  }
+  if (!Number.isInteger(periods) || periods < 0) {
+    throw new Error(`periods must be a non-negative integer, got ${periods}`)
+  }
+  if (periods === 0) return []
+
+  const backwards = end !== undefined && start === undefined
+  return backwards ? result.slice(-periods) : result.slice(0, periods)
 }
 
 /**
