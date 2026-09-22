@@ -2427,3 +2427,76 @@ test.group('HKEX calendar', () => {
     assert.include(holidays(2023), '2023-09-08')
   })
 })
+
+test.group('SSE calendar', () => {
+  const sse = getCalendar('SSE')
+  const holidays = (year: number) =>
+    sse.holidays(`${year}-01-01`, `${year}-12-31`).map((d) => d.toISODate())
+
+  test('breaks for lunch', ({ assert }) => {
+    const [day] = sse.schedule('2024-06-03', '2024-06-03')
+    assert.equal(day.market_open.toFormat('HH:mm'), '09:30')
+    assert.equal(day.break_start.toFormat('HH:mm'), '11:30')
+    assert.equal(day.break_end.toFormat('HH:mm'), '13:00')
+    assert.equal(day.market_close.toFormat('HH:mm'), '15:00')
+    assert.equal(getCalendar('XSHG').name, 'SSE')
+  })
+
+  test('observes the published 2024 closures', ({ assert }) => {
+    assert.deepEqual(holidays(2024), [
+      '2024-01-01',
+      '2024-02-09',
+      '2024-02-12',
+      '2024-02-13',
+      '2024-02-14',
+      '2024-02-15',
+      '2024-02-16', //               Spring Festival
+      '2024-04-04',
+      '2024-04-05', //               Qingming
+      '2024-05-01',
+      '2024-05-02',
+      '2024-05-03', // Labour Day
+      '2024-06-10', //                             Dragon Boat
+      '2024-09-16',
+      '2024-09-17', //               Mid-Autumn
+      '2024-10-01',
+      '2024-10-02',
+      '2024-10-03',
+      '2024-10-04',
+      '2024-10-07', //               National Day
+    ])
+  })
+
+  test('takes long runs around a festival', ({ assert }) => {
+    // 2025's Spring Festival runs from 28 January into February.
+    const y2025 = holidays(2025)
+    assert.include(y2025, '2025-01-28')
+    assert.include(y2025, '2025-02-04')
+    assert.include(y2025, '2025-10-08') // and National Day into October
+  })
+
+  test('falls back on the guessed rules past the list', ({ assert }) => {
+    // The published arrangement runs out in 2026, so 2028 comes from rules.
+    const y2028 = holidays(2028)
+    assert.isAbove(y2028.length, 20)
+    assert.include(y2028, '2028-10-01') // National Day, a fixed date
+    assert.include(y2028, '2028-01-26') // Spring Festival, from the lunar table
+  })
+})
+
+test.group('the whole registry', () => {
+  test('every registered name builds a working calendar', ({ assert }) => {
+    const names = calendarNames()
+    assert.isAbove(names.length, 90)
+
+    for (const name of names) {
+      const cal = getCalendar(name)
+      const [day] = cal.schedule('2024-06-03', '2024-06-05')
+      assert.isDefined(day, `${name} produced no schedule`)
+      assert.isTrue(
+        day.market_open < day.market_close,
+        `${name} opens after it closes`,
+      )
+    }
+  })
+})
