@@ -1,7 +1,12 @@
 import { MarketCalendar } from './core/MarketCalendar'
 import { Registry } from './core/classRegistry'
 import { NYSE } from './calendars/NYSE'
-import { CMEBond, CMEEquity } from './calendars/CME'
+import {
+  CMEAgriculture,
+  CMEBond,
+  CMEEquity,
+  CMETradeDate,
+} from './calendars/CME'
 import { CBOEEquityOptions, CBOEIndexOptions, CFE } from './calendars/CBOE'
 import { IEX } from './calendars/IEX'
 import { JPX } from './calendars/JPX'
@@ -44,6 +49,8 @@ export function registerCalendar(
 registerCalendar(NYSE)
 registerCalendar(CMEEquity)
 registerCalendar(CMEBond)
+registerCalendar(CMETradeDate)
+registerCalendar(CMEAgriculture)
 registerCalendar(CFE)
 registerCalendar(CBOEEquityOptions)
 registerCalendar(CBOEIndexOptions)

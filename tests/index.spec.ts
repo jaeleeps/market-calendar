@@ -2500,3 +2500,69 @@ test.group('the whole registry', () => {
     }
   })
 })
+
+test.group('the last CME calendars', () => {
+  test('CME_TradeDate is the settlement business-day calendar', ({
+    assert,
+  }) => {
+    const cal = getCalendar('CME_TradeDate')
+    const [day] = cal.schedule('2024-06-03', '2024-06-03')
+    // Its hours are nominal: it exists to say which days are business days.
+    assert.equal(day.market_open.toFormat('ccc dd HH:mm'), 'Sun 02 17:00')
+    assert.deepEqual(
+      cal.holidays('2024-01-01', '2024-12-31').map((d) => d.toISODate()),
+      [
+        '2024-01-01',
+        '2024-01-15',
+        '2024-02-19',
+        '2024-03-29',
+        '2024-05-27',
+        '2024-06-19',
+        '2024-07-04',
+        '2024-09-02',
+        '2024-11-28',
+        '2024-12-25',
+      ],
+    )
+  })
+
+  test('CME_Agriculture runs overnight and breaks', ({ assert }) => {
+    const [day] = getCalendar('CME_Agriculture').schedule(
+      '2024-06-03',
+      '2024-06-03',
+    )
+    assert.equal(day.market_open.toFormat('ccc dd HH:mm'), 'Sun 02 19:00')
+    assert.equal(day.break_start.toFormat('HH:mm'), '07:45')
+    assert.equal(day.break_end.toFormat('HH:mm'), '08:30')
+    assert.equal(day.market_close.toFormat('HH:mm'), '13:20')
+  })
+
+  test('CME_Agriculture shuts where the financial products shorten', ({
+    assert,
+  }) => {
+    // Memorial Day closes the agricultural calendar outright; equities
+    // merely close at noon.
+    assert.lengthOf(
+      getCalendar('CME_Agriculture').schedule('2024-05-27', '2024-05-27'),
+      0,
+    )
+    assert.lengthOf(
+      getCalendar('CME Globex Equity').schedule('2024-05-27', '2024-05-27'),
+      1,
+    )
+  })
+
+  test('resolves the aliases that were missing', ({ assert }) => {
+    // NYSE serves the US equity indices; the energy calendar answers to
+    // every product ticker it covers.
+    for (const alias of ['NASDAQ', 'BATS', 'DJIA', 'DOW']) {
+      assert.equal(getCalendar(alias).name, 'NYSE')
+    }
+    for (const alias of ['CL', 'NG', 'GC', 'SI', 'HG', 'ALI', 'TIO']) {
+      assert.equal(getCalendar(alias).name, 'CME Globex Energy and Metals')
+    }
+    for (const alias of ['CBOT_Agriculture', 'NYMEX_Agriculture']) {
+      assert.equal(getCalendar(alias).name, 'CME_Agriculture')
+    }
+  })
+})

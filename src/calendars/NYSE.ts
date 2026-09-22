@@ -39,7 +39,15 @@ import {
  * the paperwork backlogs of 1967 to 1970. Only a handful are recurring rules.
  */
 export class NYSE extends MarketCalendar {
-  static override aliases = ['XNYS', 'NYSE', 'stock']
+  static override aliases = [
+    'XNYS',
+    'NYSE',
+    'stock',
+    'NASDAQ',
+    'BATS',
+    'DJIA',
+    'DOW',
+  ]
 
   readonly name = 'NYSE'
   readonly tz = 'America/New_York'
