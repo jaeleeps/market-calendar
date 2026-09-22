@@ -36,6 +36,8 @@ export {
 export { SIFMAJP, SIFMAUK, SIFMAUS } from './calendars/SIFMA'
 export { BMF } from './calendars/BMF'
 export { TASE } from './calendars/TASE'
+export { BSE, NSE } from './calendars/BSE'
+export { HKEX } from './calendars/HKEX'
 export {
   getCalendar,
   calendarNames,

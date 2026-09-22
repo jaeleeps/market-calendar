@@ -2326,3 +2326,104 @@ test.group('BMF and TASE calendars', () => {
     assert.equal(getCalendar('xtae').name, 'TASE')
   })
 })
+
+test.group('Indian exchanges', () => {
+  test('keeps Mumbai hours', ({ assert }) => {
+    const [day] = getCalendar('BSE').schedule('2024-06-03', '2024-06-03')
+    assert.equal(day.market_open.toFormat('HH:mm'), '09:15')
+    assert.equal(day.market_close.toFormat('HH:mm'), '15:30')
+    assert.equal(getCalendar('XBOM').name, 'BSE')
+  })
+
+  test('observes the listed 2024 closures', ({ assert }) => {
+    assert.deepEqual(
+      getCalendar('BSE')
+        .holidays('2024-01-01', '2024-12-31')
+        .map((d) => d.toISODate()),
+      [
+        '2024-01-26', // Republic Day
+        '2024-03-08', // Mahashivratri
+        '2024-03-25', // Holi
+        '2024-03-29', // Good Friday
+        '2024-04-11', // Id-ul-Fitr
+        '2024-04-17', // Ram Navami
+        '2024-05-01', // Maharashtra Day
+        '2024-05-20', // general election
+        '2024-06-17', // Bakri Id
+        '2024-07-17', // Muharram
+        '2024-08-15', // Independence Day
+        '2024-10-02', // Gandhi Jayanti
+        '2024-11-01', // Diwali
+        '2024-11-15', // Gurunanak Jayanti
+        '2024-12-25',
+      ],
+    )
+  })
+
+  test('NSE keeps the same days as BSE', ({ assert }) => {
+    const days = (name: string) =>
+      getCalendar(name)
+        .validDays('2024-01-01', '2024-12-31')
+        .map((d) => d.toISODate())
+    assert.deepEqual(days('NSE'), days('BSE'))
+    assert.equal(getCalendar('xnse').name, 'NSE')
+  })
+})
+
+test.group('HKEX calendar', () => {
+  const hkex = getCalendar('HKEX')
+  const holidays = (year: number) =>
+    hkex.holidays(`${year}-01-01`, `${year}-12-31`).map((d) => d.toISODate())
+
+  test('breaks for lunch', ({ assert }) => {
+    const [day] = hkex.schedule('2024-06-03', '2024-06-03')
+    assert.equal(day.market_open.toFormat('HH:mm'), '09:30')
+    assert.equal(day.break_start.toFormat('HH:mm'), '12:00')
+    assert.equal(day.break_end.toFormat('HH:mm'), '13:00')
+    assert.equal(day.market_close.toFormat('HH:mm'), '16:00')
+    assert.equal(getCalendar('XHKG').name, 'HKEX')
+  })
+
+  test('observes the 2024 holidays', ({ assert }) => {
+    assert.deepEqual(holidays(2024), [
+      '2024-01-01',
+      '2024-02-10',
+      '2024-02-12',
+      '2024-02-13', // Lunar New Year
+      '2024-03-29',
+      '2024-04-01', //               Easter
+      '2024-04-04', //                             Ching Ming
+      '2024-05-01',
+      '2024-05-15', //                             Buddha's birthday
+      '2024-06-10', //                             Dragon Boat
+      '2024-07-01', //                             HKSAR establishment
+      '2024-09-18', //                             day after Mid-Autumn
+      '2024-10-01', //                             National Day
+      '2024-10-11', //                             Chung Yeung
+      '2024-12-25',
+      '2024-12-26',
+    ])
+  })
+
+  test('tracks the lunar festivals from year to year', ({ assert }) => {
+    // The Lunar New Year moves by weeks between years.
+    assert.include(holidays(2024), '2024-02-10')
+    assert.include(holidays(2023), '2023-01-23')
+    // Ching Ming likewise.
+    assert.include(holidays(2024), '2024-04-04')
+    assert.include(holidays(2023), '2023-04-05')
+  })
+
+  test('puts the Queen’s Birthday on a Monday in June', ({ assert }) => {
+    // The third Monday of June 1990.
+    assert.deepEqual(
+      hkex.holidays('1990-06-01', '1990-06-30').map((d) => d.toISODate()),
+      ['1990-06-18'],
+    )
+  })
+
+  test('closes for the listed one-off days', ({ assert }) => {
+    // Hong Kong shuts for typhoons, which no rule describes.
+    assert.include(holidays(2023), '2023-09-08')
+  })
+})
