@@ -1,8 +1,8 @@
 import { DateTime } from 'luxon'
 import {
   MarketCalendar,
-  TimeOfDay,
   MarketTimeKey,
+  TimeOfDay,
 } from '../core/MarketCalendar'
 import { HolidayCalendar } from '../core/HolidayCalendar'
 import { ProtectedDict } from '../core/classRegistry'
@@ -26,6 +26,41 @@ const NOON_CLOSE_RULES = [
   us.USIndependenceDay,
   us.USThanksgivingDay,
 ]
+
+/**
+ * CME trade dates.
+ *
+ * Not a trading session but the set of business days CME settles against,
+ * used to decide contract expiries. The markets are open on other days too,
+ * so its hours are nominal — fixed to the overnight session the other CME
+ * calendars keep.
+ */
+export class CMETradeDate extends MarketCalendar {
+  static override aliases = ['CME_TradeDate']
+
+  readonly name = 'CME_TradeDate'
+  readonly tz = 'America/Chicago'
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([
+    ['market_open', [{ from: null, value: [17, 0, -1] }]],
+    ['market_close', [{ from: null, value: [16, 0] }]],
+  ])
+
+  override regularHolidays = new HolidayCalendar([
+    us.USNewYearsDay,
+    us.USMartinLutherKingJrAfter1998,
+    us.USPresidentsDay,
+    us.GoodFriday,
+    us.USMemorialDay,
+    us.USLaborDay,
+    us.USJuneteenthAfter2022,
+    us.USIndependenceDay,
+    us.USThanksgivingDay,
+    us.Christmas,
+  ])
+
+  override adhocHolidays = [...us.USNationalDaysofMourning]
+}
 
 /**
  * CME equity index futures.
@@ -94,6 +129,62 @@ export class CMEEquity extends MarketCalendar {
           ...NOON_CLOSE_RULES,
           us.USJuneteenthAfter2022,
           cme.USIndependenceDayBefore2022PreviousDay,
+          us.USBlackFridayInOrAfter1993,
+          us.ChristmasEveBefore1993,
+          us.ChristmasEveInOrAfter1993,
+        ]),
+      },
+    ],
+  }
+}
+
+/**
+ * CME agricultural futures.
+ *
+ * Grain and oilseed products run overnight from seven the evening before and
+ * break in the morning, unlike the other CME calendars. They close outright
+ * for the holidays the financial products only shorten.
+ */
+export class CMEAgriculture extends MarketCalendar {
+  static override aliases = [
+    'CME_Agriculture',
+    'CBOT_Agriculture',
+    'COMEX_Agriculture',
+    'NYMEX_Agriculture',
+  ]
+
+  readonly name = 'CME_Agriculture'
+  readonly tz = 'America/Chicago'
+
+  override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([
+    ['market_open', [{ from: null, value: [19, 0, -1] }]],
+    ['break_start', [{ from: null, value: [7, 45] }]],
+    ['break_end', [{ from: null, value: [8, 30] }]],
+    ['market_close', [{ from: null, value: [13, 20] }]],
+  ])
+
+  override regularHolidays = new HolidayCalendar([
+    us.USNewYearsDay,
+    us.USMartinLutherKingJrAfter1998,
+    us.USPresidentsDay,
+    us.GoodFriday,
+    us.USMemorialDay,
+    us.USJuneteenthAfter2022,
+    us.USIndependenceDay,
+    us.USLaborDay,
+    us.USThanksgivingDay,
+    us.Christmas,
+  ])
+
+  override adhocHolidays = [...us.USNationalDaysofMourning]
+
+  override specialTimes: Partial<
+    Record<MarketTimeKey, { time: TimeOfDay; calendar?: HolidayCalendar }[]>
+  > = {
+    market_close: [
+      {
+        time: [12, 0],
+        calendar: new HolidayCalendar([
           us.USBlackFridayInOrAfter1993,
           us.ChristmasEveBefore1993,
           us.ChristmasEveInOrAfter1993,
