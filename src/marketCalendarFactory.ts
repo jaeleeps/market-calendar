@@ -23,6 +23,7 @@ import {
 import { SIFMAJP, SIFMAUK, SIFMAUS } from './calendars/SIFMA'
 import { BMF } from './calendars/BMF'
 import { TASE } from './calendars/TASE'
+import { BSE, NSE } from './calendars/BSE'
 
 const registry = new Registry<MarketCalendar>()
 
@@ -68,6 +69,8 @@ registerCalendar(SIFMAUK)
 registerCalendar(SIFMAUS)
 registerCalendar(BMF)
 registerCalendar(TASE)
+registerCalendar(BSE)
+registerCalendar(NSE)
 
 /**
  * Returns a new calendar instance for the given market code.
