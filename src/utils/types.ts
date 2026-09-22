@@ -13,11 +13,6 @@ export type TradingSessionLabel =
   | 'closed'
 
 /**
- * Extended session labels used in downstream logic.
- */
-export type ExtendedTradingSessionLabel = TradingSessionLabel | 'closed_masked'
-
-/**
  * A single day's trading schedule (used in markSession and merge logic).
  */
 export interface MarketDaySchedule {

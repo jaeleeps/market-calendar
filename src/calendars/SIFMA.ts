@@ -34,6 +34,9 @@ export class SIFMAUS extends MarketCalendar {
   ]
 
   readonly name = 'SIFMA_US'
+  override get fullName(): string {
+    return 'Securities Industry and Financial Markets Association'
+  }
   readonly tz = 'America/New_York'
 
   override regularMarketTimes = times([7, 0], [17, 30])

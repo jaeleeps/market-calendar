@@ -2566,3 +2566,34 @@ test.group('the last CME calendars', () => {
     }
   })
 })
+
+test.group('calendar metadata and time accessors', () => {
+  test('every calendar has a full name', ({ assert }) => {
+    assert.isTrue(calendarNames().every((n) => !!getCalendar(n).fullName))
+    assert.equal(getCalendar('NYSE').fullName, 'New York Stock Exchange')
+    assert.equal(getCalendar('IEX').fullName, "Investor's Exchange")
+    // One that has no full name upstream falls back to its short one.
+    assert.equal(getCalendar('CME_Bond').fullName, 'CME_Bond')
+  })
+
+  test('reports the times currently in effect', ({ assert }) => {
+    const nyse = getCalendar('NYSE')
+    assert.deepEqual(nyse.openTime, [9, 30])
+    assert.deepEqual(nyse.closeTime, [16, 0])
+    assert.isUndefined(nyse.breakStart) //  NYSE does not break
+    const jpx = getCalendar('JPX')
+    assert.deepEqual(jpx.breakStart, [11, 30])
+    assert.deepEqual(jpx.breakEnd, [12, 30])
+  })
+
+  test('reports the times a given date had', ({ assert }) => {
+    const nyse = getCalendar('NYSE')
+    // NYSE opened at 10:00 until 1985 and closed at 15:30 until 1974.
+    assert.deepEqual(nyse.openTimeOn('1970-06-01'), [10, 0])
+    assert.deepEqual(nyse.closeTimeOn('1970-06-01'), [15, 30])
+    assert.deepEqual(nyse.openTimeOn('2024-06-03'), [9, 30])
+    // JPX moved its close in November 2024.
+    assert.deepEqual(getCalendar('JPX').closeTimeOn('2024-11-01'), [15, 0])
+    assert.deepEqual(getCalendar('JPX').closeTimeOn('2024-11-05'), [15, 30])
+  })
+})

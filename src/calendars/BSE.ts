@@ -19,6 +19,9 @@ export class BSE extends MarketCalendar {
   static override aliases = ['BSE', 'XBOM']
 
   readonly name = 'BSE'
+  override get fullName(): string {
+    return 'Bombay Stock Exchange'
+  }
   readonly tz = 'Asia/Kolkata'
 
   override regularMarketTimes = indianHours()
@@ -30,6 +33,9 @@ export class NSE extends MarketCalendar {
   static override aliases = ['NSE', 'XNSE']
 
   readonly name = 'NSE'
+  override get fullName(): string {
+    return 'National Stock Exchange of India'
+  }
   readonly tz = 'Asia/Kolkata'
 
   override regularMarketTimes = indianHours()

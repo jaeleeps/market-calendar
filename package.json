@@ -1,13 +1,42 @@
 {
   "name": "market-calendar",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.1.0",
+  "description": "Exchange trading calendars: sessions, holidays, early closes and bar timestamps for 36 markets. A JavaScript port of pandas_market_calendars.",
+  "keywords": [
+    "market",
+    "calendar",
+    "exchange",
+    "trading",
+    "holidays",
+    "trading-hours",
+    "nyse",
+    "cme",
+    "finance",
+    "luxon"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaeleeps/market-calendar.git"
+  },
+  "homepage": "https://github.com/jaeleeps/market-calendar#readme",
+  "bugs": {
+    "url": "https://github.com/jaeleeps/market-calendar/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    "import": "./dist/index.js",
-    "require": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "lint": "eslint . --ext .ts",
@@ -15,7 +44,9 @@
     "format": "prettier --write .",
     "test": "tsx japaFile.ts",
     "build": "tsc",
-    "prepare": "husky install"
+    "typecheck": "tsc -p tsconfig.check.json",
+    "prepare": "husky",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm test && npm run build"
   },
   "lint-staged": {
     "*.{ts,js}": [
@@ -27,7 +58,6 @@
     "@eslint/js": "^9.31.0",
     "@japa/assert": "^4.0.1",
     "@japa/runner": "^4.2.0",
-    "@types/luxon": "^3.7.1",
     "@typescript-eslint/eslint-plugin": "^8.37.0",
     "@typescript-eslint/parser": "^8.37.0",
     "eslint": "^9.31.0",
@@ -43,6 +73,7 @@
     "typescript-eslint": "^8.37.0"
   },
   "dependencies": {
+    "@types/luxon": "^3.7.1",
     "luxon": "^3.7.1"
   }
 }

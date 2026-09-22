@@ -157,6 +157,11 @@ export abstract class MarketCalendar {
   /** IANA timezone of the exchange, e.g. "America/New_York". */
   abstract readonly tz: string
 
+  /** The exchange's name in full. Defaults to its short name. */
+  get fullName(): string {
+    return this.name
+  }
+
   /**
    * Regular market times, keyed by column name. Each entry is the history of
    * that time, so an exchange that moved its open records both.
@@ -272,6 +277,58 @@ export abstract class MarketCalendar {
   /** Days the close sits away from the session date. */
   get closeOffset(): number {
     return this.getTime('market_close')?.[2] ?? 0
+  }
+
+  /** The regular open currently in effect. */
+  get openTime(): TimeOfDay | undefined {
+    return this.getTime('market_open')
+  }
+
+  /** The regular close currently in effect. */
+  get closeTime(): TimeOfDay | undefined {
+    return this.getTime('market_close')
+  }
+
+  /** The start of the lunch break, for an exchange that takes one. */
+  get breakStart(): TimeOfDay | undefined {
+    return this.getTime('break_start')
+  }
+
+  /** The end of the lunch break. */
+  get breakEnd(): TimeOfDay | undefined {
+    return this.getTime('break_end')
+  }
+
+  /**
+   * The open on a given date, which may differ from the current one.
+   * @param date The date to resolve against
+   */
+  openTimeOn(date: DateLike): TimeOfDay | undefined {
+    return this.getTimeOn('market_open', date)
+  }
+
+  /**
+   * The close on a given date.
+   * @param date The date to resolve against
+   */
+  closeTimeOn(date: DateLike): TimeOfDay | undefined {
+    return this.getTimeOn('market_close', date)
+  }
+
+  /**
+   * The start of the lunch break on a given date.
+   * @param date The date to resolve against
+   */
+  breakStartOn(date: DateLike): TimeOfDay | undefined {
+    return this.getTimeOn('break_start', date)
+  }
+
+  /**
+   * The end of the lunch break on a given date.
+   * @param date The date to resolve against
+   */
+  breakEndOn(date: DateLike): TimeOfDay | undefined {
+    return this.getTimeOn('break_end', date)
   }
 
   /**

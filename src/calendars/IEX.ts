@@ -19,6 +19,9 @@ export class IEX extends MarketCalendar {
   static override aliases = ['IEX', 'Investors_Exchange']
 
   readonly name = 'IEX'
+  override get fullName(): string {
+    return "Investor's Exchange"
+  }
   readonly tz = 'America/New_York'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

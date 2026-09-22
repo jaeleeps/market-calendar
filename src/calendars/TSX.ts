@@ -17,6 +17,9 @@ export class TSX extends MarketCalendar {
   static override aliases = ['TSX', 'TSXV', 'XTSE']
 
   readonly name = 'TSX'
+  override get fullName(): string {
+    return 'Toronto Stock Exchange'
+  }
   readonly tz = 'America/Toronto'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

@@ -17,6 +17,9 @@ export class HKEX extends MarketCalendar {
   static override aliases = ['HKEX', 'XHKG']
 
   readonly name = 'HKEX'
+  override get fullName(): string {
+    return 'Hong Kong Stock Exchange'
+  }
   readonly tz = 'Asia/Hong_Kong'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

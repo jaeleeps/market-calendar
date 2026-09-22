@@ -50,6 +50,9 @@ export class NYSE extends MarketCalendar {
   ]
 
   readonly name = 'NYSE'
+  override get fullName(): string {
+    return 'New York Stock Exchange'
+  }
   readonly tz = 'America/New_York'
 
   /** The last date Saturday sessions were held. */
