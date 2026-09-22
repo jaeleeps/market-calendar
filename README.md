@@ -3,8 +3,11 @@
 Exchange trading calendars for JavaScript: sessions, holidays, early closes and
 bar timestamps for 36 markets.
 
-A port of
-[`pandas_market_calendars`](https://github.com/rsheftel/pandas_market_calendars).
+A JavaScript port of
+[`pandas_market_calendars`](https://github.com/rsheftel/pandas_market_calendars)
+by [Ryan Sheftel](https://github.com/rsheftel). The exchange data and the
+behaviour are that project's work; see
+[Credits](#credits-and-attribution).
 
 ```bash
 npm install market-calendar
@@ -71,8 +74,26 @@ opened at 10:00 until 1985 and traded on Saturdays until 1952; CME's equity
 session moved twice; JPX moved its close in November 2024. Ask for a schedule
 in 1970 and you get 1970's hours.
 
-## Acknowledgements
+## Credits and attribution
 
-This library is a JavaScript port inspired by the Python package
-[`pandas_market_calendars`](https://github.com/rsheftel/pandas_market_calendars)
-by [rsheftel](https://github.com/rsheftel), licensed under the MIT License.
+This library is a JavaScript port of
+**[`pandas_market_calendars`](https://github.com/rsheftel/pandas_market_calendars)**,
+created and maintained by **[Ryan Sheftel](https://github.com/rsheftel)** and
+its contributors, and released under the MIT License.
+
+Nearly everything of substance here originates in that project. Its exchange
+rules, holiday data and the semantics of the schedule and date-range functions
+were followed deliberately and closely, so that answers agree with it. Where
+this port departs — a renamed function, a generalised structure, a rule
+corrected — the reason is recorded in the [changelog](CHANGELOG.md) and in the
+code.
+
+`pandas_market_calendars` itself builds on earlier work by Quantopian, and some
+of its calendars carry that lineage.
+
+This project is an independent port. It is not affiliated with, endorsed by, or
+supported by the authors of `pandas_market_calendars`; please raise issues with
+this port here rather than with them.
+
+Both projects are MIT licensed. See [LICENSE](LICENSE) for this one, and the
+upstream repository for theirs.
