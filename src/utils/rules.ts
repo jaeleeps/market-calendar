@@ -77,6 +77,22 @@ export function previousFriday(dt: DateTime): DateTime {
 }
 
 /**
+ * The business day before a date.
+ *
+ * Always steps back at least one day, then keeps going while it lands at a
+ * weekend, so the day before a Monday holiday is the Friday.
+ *
+ * @param dt DateTime object
+ * @returns The preceding weekday
+ */
+export function previousWorkday(dt: DateTime): DateTime {
+  let previous = dt.minus({ days: 1 })
+  while (previous.weekday > Weekday.FRIDAY)
+    previous = previous.minus({ days: 1 })
+  return previous
+}
+
+/**
  * Move a holiday that follows another one to the next free weekday.
  *
  * Saturday and Sunday both go to the following Tuesday and Monday to the
@@ -121,6 +137,17 @@ export function easterMondayObservance(dt: DateTime): DateTime {
  * @returns DateTime + 1 day
  */
 export const plusOneDay = (dt: DateTime): DateTime => dt.plus({ days: 1 })
+
+/**
+ * Return an offset that shifts a date by a fixed number of days.
+ *
+ * @param days Days to add; negative moves back
+ * @returns The offset function
+ */
+export const plusDays =
+  (days: number) =>
+  (dt: DateTime): DateTime =>
+    dt.plus({ days })
 
 /**
  * Compute Gregorian Easter Sunday for a year (anonymous Gregorian algorithm).

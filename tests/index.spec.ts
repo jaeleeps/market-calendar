@@ -2172,3 +2172,88 @@ test.group('CME Globex products', () => {
     assert.equal(getCalendar('cmeglobex_oilseeds').name, 'CME Globex Grains')
   })
 })
+
+test.group('SIFMA calendars', () => {
+  const holidays = (name: string, year: number) =>
+    getCalendar(name)
+      .holidays(`${year}-01-01`, `${year}-12-31`)
+      .map((d) => d.toISODate())
+
+  test('keeps each desk on its own hours', ({ assert }) => {
+    const hours = (name: string) => {
+      const [day] = getCalendar(name).schedule('2024-06-03', '2024-06-03')
+      return `${day.market_open.toFormat('HH:mm')}-${day.market_close.toFormat('HH:mm')}`
+    }
+    assert.equal(hours('SIFMA_US'), '07:00-17:30')
+    assert.equal(hours('SIFMA_UK'), '08:00-17:00')
+    assert.equal(hours('SIFMA_JP'), '08:30-18:30')
+  })
+
+  test('the US desk keeps Columbus and Veterans Day', ({ assert }) => {
+    assert.deepEqual(holidays('SIFMA_US', 2024), [
+      '2024-01-01',
+      '2024-01-15', // Martin Luther King Day
+      '2024-02-19',
+      '2024-05-27',
+      '2024-06-19',
+      '2024-07-04',
+      '2024-09-02',
+      '2024-10-14', // Columbus Day, which the equity calendars trade through
+      '2024-11-11', // Veterans Day, likewise
+      '2024-11-28',
+      '2024-12-25',
+    ])
+  })
+
+  test('the US desk closes at 14:00 around a holiday', ({ assert }) => {
+    const cal = getCalendar('SIFMA_US')
+    const year = cal.schedule('2024-01-01', '2024-12-31')
+    assert.deepEqual(
+      cal.earlyCloses(year).map((d) => d.date.toISODate()),
+      [
+        '2024-05-24', // the Friday before Memorial Day
+        '2024-07-03',
+        '2024-11-29', // the day after Thanksgiving
+        '2024-12-24',
+        '2024-12-31',
+      ],
+    )
+    assert.equal(
+      cal.earlyCloses(year)[0].market_close.toFormat('HH:mm'),
+      '14:00',
+    )
+  })
+
+  test('the US desk stops closing for Good Friday after 2020', ({ assert }) => {
+    // SIFMA decides year by year from 2021, so no rule covers it.
+    assert.include(holidays('SIFMA_US', 2020), '2020-04-10')
+    assert.notInclude(holidays('SIFMA_US', 2024), '2024-03-29')
+    // The other two desks keep it as a UK bank holiday.
+    assert.include(holidays('SIFMA_UK', 2024), '2024-03-29')
+    assert.include(holidays('SIFMA_JP', 2024), '2024-03-29')
+  })
+
+  test('the UK desk keeps both countries’ holidays', ({ assert }) => {
+    const uk = holidays('SIFMA_UK', 2024)
+    assert.include(uk, '2024-05-06') // UK early May bank holiday
+    assert.include(uk, '2024-08-26') // UK summer bank holiday
+    assert.include(uk, '2024-12-26') // Boxing Day
+    assert.include(uk, '2024-01-15') // and US Martin Luther King Day
+    assert.include(uk, '2024-11-28') // and US Thanksgiving
+  })
+
+  test('the JP desk keeps all three', ({ assert }) => {
+    const jp = holidays('SIFMA_JP', 2024)
+    assert.include(jp, '2024-03-20') // Japanese vernal equinox
+    assert.include(jp, '2024-05-03') // Constitution Memorial Day
+    assert.include(jp, '2024-11-23') // Labour Thanksgiving
+    assert.include(jp, '2024-04-01') // UK Easter Monday
+    assert.include(jp, '2024-07-04') // US Independence Day
+    assert.isAbove(jp.length, holidays('SIFMA_UK', 2024).length)
+  })
+
+  test('resolves the descriptive aliases', ({ assert }) => {
+    assert.equal(getCalendar('Bond_Markets_US').name, 'SIFMA_US')
+    assert.equal(getCalendar('capital_markets_jp').name, 'SIFMA_JP')
+  })
+})
