@@ -1,13 +1,39 @@
 {
   "name": "market-calendar",
-  "version": "1.0.0",
-  "description": "",
+  "version": "2.0.0",
+  "description": "Exchange trading calendars: sessions, holidays, early closes and bar timestamps for 36 markets. A JavaScript port of pandas_market_calendars.",
+  "keywords": [
+    "market",
+    "calendar",
+    "exchange",
+    "trading",
+    "holidays",
+    "trading-hours",
+    "nyse",
+    "cme",
+    "finance",
+    "luxon"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jaeleeps/market-calendar.git"
+  },
+  "homepage": "https://github.com/jaeleeps/market-calendar#readme",
+  "bugs": {
+    "url": "https://github.com/jaeleeps/market-calendar/issues"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     "import": "./dist/index.js",
     "require": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "lint": "eslint . --ext .ts",
@@ -15,7 +41,8 @@
     "format": "prettier --write .",
     "test": "tsx japaFile.ts",
     "build": "tsc",
-    "prepare": "husky install"
+    "prepare": "husky",
+    "prepublishOnly": "npm run lint && npm test && npm run build"
   },
   "lint-staged": {
     "*.{ts,js}": [
