@@ -25,6 +25,7 @@ import { BMF } from './calendars/BMF'
 import { TASE } from './calendars/TASE'
 import { BSE, NSE } from './calendars/BSE'
 import { HKEX } from './calendars/HKEX'
+import { SSE } from './calendars/SSE'
 
 const registry = new Registry<MarketCalendar>()
 
@@ -73,6 +74,7 @@ registerCalendar(TASE)
 registerCalendar(BSE)
 registerCalendar(NSE)
 registerCalendar(HKEX)
+registerCalendar(SSE)
 
 /**
  * Returns a new calendar instance for the given market code.
