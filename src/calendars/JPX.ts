@@ -20,6 +20,9 @@ export class JPX extends MarketCalendar {
   static override aliases = ['JPX', 'XJPX']
 
   readonly name = 'JPX'
+  override get fullName(): string {
+    return 'Japan Exchange Group'
+  }
   readonly tz = 'Asia/Tokyo'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

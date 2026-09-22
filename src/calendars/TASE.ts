@@ -15,6 +15,9 @@ export class TASE extends MarketCalendar {
   static override aliases = ['TASE', 'XTAE']
 
   readonly name = 'TASE'
+  override get fullName(): string {
+    return 'Tel Aviv Stock Exchange'
+  }
   readonly tz = 'Asia/Jerusalem'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

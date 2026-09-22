@@ -16,6 +16,9 @@ export class LSE extends MarketCalendar {
   static override aliases = ['LSE', 'XLON']
 
   readonly name = 'LSE'
+  override get fullName(): string {
+    return 'London Stock Exchange'
+  }
   readonly tz = 'Europe/London'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

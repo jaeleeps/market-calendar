@@ -48,6 +48,9 @@ export class CFE extends MarketCalendar {
   static override aliases = ['CFE', 'CBOE_Futures']
 
   readonly name = 'CFE'
+  override get fullName(): string {
+    return 'CBOE Futures Exchange'
+  }
   readonly tz = 'America/Chicago'
 
   override regularMarketTimes = times([8, 30], [15, 15])

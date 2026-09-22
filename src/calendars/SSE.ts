@@ -19,6 +19,9 @@ export class SSE extends MarketCalendar {
   static override aliases = ['SSE', 'XSHG']
 
   readonly name = 'SSE'
+  override get fullName(): string {
+    return 'Shanghai Stock Exchange'
+  }
   readonly tz = 'Asia/Shanghai'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

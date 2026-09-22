@@ -16,6 +16,9 @@ export class ASX extends MarketCalendar {
   static override aliases = ['ASX', 'XASX']
 
   readonly name = 'ASX'
+  override get fullName(): string {
+    return 'Australian Securities Exchange'
+  }
   readonly tz = 'Australia/Sydney'
 
   override regularMarketTimes = new ProtectedDict<Dated<TimeOfDay | null>[]>([

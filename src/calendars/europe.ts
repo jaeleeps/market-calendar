@@ -26,6 +26,9 @@ export class SIX extends MarketCalendar {
   static override aliases = ['SIX', 'XSWX']
 
   readonly name = 'SIX'
+  override get fullName(): string {
+    return 'SIX Swiss Exchange'
+  }
   readonly tz = 'Europe/Zurich'
 
   override regularMarketTimes = times([9, 0], [17, 30])
@@ -135,6 +138,9 @@ export class OSE extends MarketCalendar {
   static override aliases = ['OSE', 'XOSL']
 
   readonly name = 'OSE'
+  override get fullName(): string {
+    return 'Oslo Stock Exchange'
+  }
   readonly tz = 'Europe/Oslo'
 
   override regularMarketTimes = times([9, 0], [16, 20])
