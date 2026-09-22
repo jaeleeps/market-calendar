@@ -2257,3 +2257,72 @@ test.group('SIFMA calendars', () => {
     assert.equal(getCalendar('capital_markets_jp').name, 'SIFMA_JP')
   })
 })
+
+test.group('BMF and TASE calendars', () => {
+  const holidays = (name: string, year: number) =>
+    getCalendar(name)
+      .holidays(`${year}-01-01`, `${year}-12-31`)
+      .map((d) => d.toISODate())
+
+  test('BMF keeps the Brazilian holidays', ({ assert }) => {
+    assert.deepEqual(holidays('B3', 2024), [
+      '2024-01-01',
+      '2024-02-12',
+      '2024-02-13', // Carnival Monday and Tuesday
+      '2024-03-29', //               Sexta-feira da Paixão
+      '2024-04-21', //               Tiradentes
+      '2024-05-01',
+      '2024-05-30', //               Corpus Christi, 60 days after Easter
+      '2024-09-07', //               Independência
+      '2024-10-12', //               Nossa Senhora Aparecida
+      '2024-11-02', //               Finados
+      '2024-11-15', //               Proclamação da República
+      '2024-11-20', //               Consciência Negra
+      '2024-12-24',
+      '2024-12-25',
+      '2024-12-31',
+    ])
+  })
+
+  test('BMF drops the holidays that have lapsed', ({ assert }) => {
+    const y2019 = holidays('B3', 2019)
+    // The São Paulo city anniversary ran to 2021 and Constitucionalista
+    // to 2019, so both are present then and gone by 2024.
+    assert.include(y2019, '2019-01-25')
+    assert.include(y2019, '2019-07-09')
+    assert.notInclude(holidays('B3', 2024), '2024-01-25')
+    assert.notInclude(holidays('B3', 2024), '2024-07-09')
+  })
+
+  test('BMF moves Carnival with Easter', ({ assert }) => {
+    // Carnival is 48 and 47 days before Easter, so it tracks it.
+    assert.include(holidays('B3', 2023), '2023-02-20')
+    assert.include(holidays('B3', 2023), '2023-02-21')
+  })
+
+  test('TASE trades Sunday to Thursday', ({ assert }) => {
+    assert.deepEqual(
+      getCalendar('TASE')
+        .validDays('2024-06-02', '2024-06-08')
+        .map((d) => d.toISODate()),
+      ['2024-06-02', '2024-06-03', '2024-06-04', '2024-06-05', '2024-06-06'],
+    )
+    const [day] = getCalendar('TASE').schedule('2024-06-03', '2024-06-03')
+    assert.equal(day.market_open.toFormat('HH:mm'), '10:00')
+    assert.equal(day.market_close.toFormat('HH:mm'), '15:59')
+  })
+
+  test('TASE closes for the listed lunar holidays', ({ assert }) => {
+    const y2024 = holidays('TASE', 2024)
+    assert.include(y2024, '2024-04-22') // Passover
+    assert.include(y2024, '2024-05-14') // Independence Day
+    assert.include(y2024, '2024-10-03') // Rosh Hashanah
+    assert.include(y2024, '2024-10-11') // Yom Kippur
+    assert.lengthOf(y2024, 19)
+  })
+
+  test('resolves the aliases', ({ assert }) => {
+    assert.equal(getCalendar('BVMF').name, 'BMF')
+    assert.equal(getCalendar('xtae').name, 'TASE')
+  })
+})

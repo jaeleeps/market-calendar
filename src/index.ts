@@ -34,6 +34,8 @@ export {
   CMEGlobexLivestock,
 } from './calendars/CMEGlobex'
 export { SIFMAJP, SIFMAUK, SIFMAUS } from './calendars/SIFMA'
+export { BMF } from './calendars/BMF'
+export { TASE } from './calendars/TASE'
 export {
   getCalendar,
   calendarNames,

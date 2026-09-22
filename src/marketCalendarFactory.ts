@@ -21,6 +21,8 @@ import {
   CMEGlobexLivestock,
 } from './calendars/CMEGlobex'
 import { SIFMAJP, SIFMAUK, SIFMAUS } from './calendars/SIFMA'
+import { BMF } from './calendars/BMF'
+import { TASE } from './calendars/TASE'
 
 const registry = new Registry<MarketCalendar>()
 
@@ -64,6 +66,8 @@ registerCalendar(CMEGlobexLivestock)
 registerCalendar(SIFMAJP)
 registerCalendar(SIFMAUK)
 registerCalendar(SIFMAUS)
+registerCalendar(BMF)
+registerCalendar(TASE)
 
 /**
  * Returns a new calendar instance for the given market code.
