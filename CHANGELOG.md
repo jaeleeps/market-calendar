@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.1
+
+Package metadata only; the library is unchanged from 1.1.0.
+
+- Keywords that match what people search for — trading hours, market
+  holidays, early closes, trading days, backtesting, the exchanges covered
+  outside the US, and the Python package this ports — in place of generic
+  terms that indexed the package alongside calendar widgets
+- An `author`, which the npm page had been showing blank
+
 ## 1.1.0
 
 The first release with a working library. Version 1.0.0 was a placeholder that
