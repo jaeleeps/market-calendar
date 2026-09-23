@@ -3,15 +3,28 @@
   "version": "1.1.0",
   "description": "Exchange trading calendars: sessions, holidays, early closes and bar timestamps for 36 markets. A JavaScript port of pandas_market_calendars.",
   "keywords": [
-    "market",
-    "calendar",
-    "exchange",
-    "trading",
-    "holidays",
+    "market-calendar",
+    "trading-calendar",
+    "exchange-calendar",
     "trading-hours",
-    "nyse",
-    "cme",
+    "market-hours",
+    "is-market-open",
+    "trading-days",
+    "market-holidays",
+    "early-close",
+    "stock-market",
     "finance",
+    "quantitative-finance",
+    "algorithmic-trading",
+    "backtesting",
+    "nyse",
+    "nasdaq",
+    "cme",
+    "lse",
+    "jpx",
+    "hkex",
+    "pandas-market-calendars",
+    "typescript",
     "luxon"
   ],
   "license": "MIT",
@@ -75,5 +88,6 @@
   "dependencies": {
     "@types/luxon": "^3.7.1",
     "luxon": "^3.7.1"
-  }
+  },
+  "author": "Jaeyoung Lee <jaeleeps@gmail.com>"
 }
